@@ -492,10 +492,9 @@ Proto({
 			.string_("Visual system IP/port")
 			.align_(\center);
 
-		/*
-		savedAddr = (Platform.userAppSupportDir +/+ "vizaddr.txt").loadPath(warnIfNotFound: false);
+		savedAddr = (Platform.userAppSupportDir +/+ "remoteaddr.txt").loadPath(warnIfNotFound: false);
 		savedAddr !? {
-			Library.put(\vizAddr, savedAddr)
+			Library.put(\remoteAddr, savedAddr)
 		};
 		~ipField = TextField(parent, ~bigButtonSize @ 20)
 			.align_(\center)
@@ -517,8 +516,8 @@ Proto({
 						or: { ip.reject(_ == $.).any { |ch| ch.isDecDigit.not } } }) {
 							flashString.value("WRONG FORMAT", Color.red);
 						} {
-							Library.put(\vizAddr, NetAddr(ip, port));
-							flashString.value("OK: " ++ Library.at(\vizAddr).asString,
+							Library.put(\remoteAddr, NetAddr(ip, port));
+							flashString.value("OK: " ++ Library.at(\remoteAddr).asString,
 								Color.new255(180, 255, 180), Color.new255(180, 255, 180));
 						};
 				} {
@@ -538,15 +537,14 @@ Proto({
 		~testBtn = Button(parent, ~bigButtonSize@20)
 			.states_([["Send test message to visual system"]])
 			.action_({ |view|
-				var	vizAddr = Library.at(\vizAddr);
-				if(vizAddr.notNil) {
-					"Sending test message to %\n".postf(vizAddr);
-					vizAddr.sendBundle(nil, [\note, \test.hash, -1, 0.2, 0.0, 1.0, 1.0, 0.0, 5].debug("msg"));
+				var	remoteAddr = Library.at(\remoteAddr);
+				if(remoteAddr.notNil) {
+					"Sending test message to %\n".postf(remoteAddr);
+					remoteAddr.sendBundle(nil, [\note, \test.hash, -1, 0.2, 0.0, 1.0, 1.0, 0.0, 5].debug("msg"));
 				} {
 					"Enter a valid address before clicking".warn;
 				};
 			});
-		*/
 
 		UserView(parent, ~bigButtonSize@16)
 			.drawFunc_(e {
@@ -577,14 +575,14 @@ Proto({
 	
 	~freeCleanup = {
 		var	file, path, addr;
-		if(Library.at(\vizAddr).isKindOf(NetAddr)) {
-			path = Platform.userAppSupportDir +/+ "vizaddr.txt";
+		if(Library.at(\remoteAddr).isKindOf(NetAddr)) {
+			path = Platform.userAppSupportDir +/+ "remoteaddr.txt";
 			addr = path.loadPath(warnIfNotFound: false);
-			if(Library.at(\vizAddr) != addr) {
+			if(Library.at(\remoteAddr) != addr) {
 				protect {
 					file = File(path, "w");
 					if(file.isOpen) {
-						file <<< Library.at(\vizAddr) << Char.nl;
+						file <<< Library.at(\remoteAddr) << Char.nl;
 					} {
 						"Couldn't persist visual system address in %\n".format(path).warn;
 					};
