@@ -1,3 +1,14 @@
+(
+var dir;
+
+if(Func.exists(\ma2011dir)) {
+	dir = \ma2011dir.eval;
+} {
+	Error("Func(\\ma2011dir) doesn't exist. Check your startup configuration (instructions in addToYourStartupFile.scd).").throw;
+};
+
+(dir +/+ "perf/loadVideo.scd").loadPath;
+)
 
 s.boot;
 
@@ -97,3 +108,60 @@ u.put(\allPtsReceived, {
 
 
 
+
+// what the hell, i'll stash more dev code in here too
+
+// slow swells - use adsr and release when a cell falls below threshold
+
+~cb = Buffer.alloc(s, 2048, 1);
+~mb = Buffer.alloc(s, 2048, 1);
+
+~cb.sine1(#[1]);
+~mb.sine1((1..10).reciprocal);
+
+~cb.sine1((1..10).reciprocal);
+~mb.sine1(#[1]);
+
+Library.at(WrapInstr, \osc2).keys
+
+WrapInstr("osc2.fm2carpan", { |pan = 0|
+	Pan2.ar(WrapInstr.wrap("osc2.fm2car"), pan)
+}, [\bipolar]);
+
+WrapInstr("osc2.fm2carpan").listArgs
+
+WrapInstr("osc2.fm2car").openFile;
+
+( channel: 0, initArgs, target, bus, ctlChannel, makeVoicerFunc )
+
+MIDIPort.init;
+
+v = WrapInstr("osc2.fm2carpan").miditest(0, [
+	car_env: Env.adsr(0.8, 0.4, 0.6, 2.8),
+	// nil, // mod_env: Env.adsr( attackTime: 0.01, decayTime: 0.3, sustainLevel: 0.5, releaseTime: 1, peakLevel: 1, curve: -4, bias: 0 )
+	car_buf: ~cb, mod_buf: ~mb
+], target: m);
+
+v.nodes[0].insp
+
+
+p = Pbind(
+	\type, \voicerNote,
+	\voicer, v,
+	\degree, Pwhite(-7, 7, inf) + 21,
+	\dur, 3,
+	\legato, 0.75,
+	\gate, 0.8
+).play;
+
+p.stop;
+
+\pan, 0, 
+\mod_lev, 1.028059363652, 
+\mod_ratio, 2, 
+\detune, 0.61800003051758, 
+\car_detune, 1.0028868434838, 
+\car_vs, 0, 
+\mod_vs, 0, 
+\basefreq, 440, 
+\keyscale, 0.28880180238151, 
