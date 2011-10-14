@@ -16,6 +16,12 @@ s.boot;
 m = MixerChannel(\demo, s, 2, 2);
 MixingBoard(\demo, nil, m);
 
+"~/share/SC/quarks/dewdrop_lib/ddwChucklib/Prototypes/devPreMIDIcfg.scd".loadPath;
+MIDIPort.init(~srcInports);
+
+MixerMIDIControl(\omni, nil, m);
+
+
 BP(\ml).points[0].listVars
 
 ~makeLagDef = { |numChan = 1|
@@ -141,8 +147,6 @@ WrapInstr("osc2.fm2carpan").listArgs
 
 WrapInstr("osc2.fm2car").openFile;
 
-"~/share/SC/quarks/dewdrop_lib/ddwChucklib/Prototypes/devPreMIDIcfg.scd".loadPath;
-MIDIPort.init(~srcInports);
 
 v = WrapInstr("osc2.fm2carpan").miditest(0, [
 	car_env: Env.adsr(0.8, 0.4, 0.6, 2.8),
@@ -185,14 +189,79 @@ p.stop;
 
 
 // Mode(\default).v.copy.root_(2) => Mode(\d);
-ModalSpec(#[0, 2, 4, 5, 7, 9, 10], 12, 2) => Mode(\dmixo);
+
+(
+(
+make: { |name|
+	var	out, argnames, argspecs;
+	~cb = Buffer.alloc(s, 2048, 1, completionMessage: { |buf|
+		buf.sine1Msg((1..10).reciprocal);
+	});
+	~mb = Buffer.alloc(s, 2048, 1, completionMessage: { |buf|
+		buf.sine1Msg(#[1]);
+	});
+
+	~target = MixerChannel(name, s, 2, 2, level: -14.dbamp);
+
+	// hack: pass gate and mod_vs to mod_env
+	WrapInstr("osc2.fm2carpan", { |pan = 0, gate = 1, mod_env, mod_vs = 0|
+		mod_env = mod_env.dereference.value(gate, mod_vs);
+		Pan2.ar(
+			WrapInstr.wrap("osc2.fm2car", [
+				nil, gate, nil, mod_env, nil, nil, nil, nil, nil, nil, nil,
+				mod_vs
+			]),
+			pan
+		)
+	}, [\bipolar, #[0, 1], EnvSpec(Env.one), #[0, 1]]);
+
+	out = Voicer(40, WrapInstr("osc2.fm2carpan"), [
+		car_env: Env.adsr(0.8, 0.4, 0.6, 2.8),
+		mod_env: `{ |gate|
+			// maybe NamedControl for time sensitivity?
+			Env([1, gate.linlin(0, 1, 1, 1.6), 1], [gate.linexp(0, 1, 2, 0.2), gate.linexp(0, 1, 3.3, 0.7)])
+		},
+		car_buf: ~cb, mod_buf: ~mb,
+		mod_lev: 1.8037946271776,
+		mod_ratio: 4 //,
+		// detune: -0.19685039370079,
+		// car_detune: 1.0052043765621,
+		// car_vs: 0.79527559055118,
+		// mod_vs: 0.37795275590551,
+		// basefreq: 440,
+		// keyscale: 0.33736499154165
+	], target: ~target);
+
+	argnames = out.nodes[0].patch.argNames;
+	argspecs = IdentityDictionary.new;
+	out.nodes[0].patch.argSpecs.do { |spec, i|
+		argspecs.put(argnames[i], spec)
+	};
+
+	[
+		detune: -0.19685039370079,
+		car_detune: 1.0052043765621,
+		car_vs: 0.79527559055118,
+		mod_vs: 0.37795275590551,
+		basefreq: 440,
+		keyscale: 0.33736499154165,
+	].pairsDo { |name, value|
+		out.mapGlobal(name, nil, value, argspecs[name]);
+	};
+	out
+},
+free: { [~target, ~cb, ~mb].free },
+type: \voicer) => Fact(\fmswells);
+)
 
 (
 BP(\swells).free;
+if(Mode.exists(\dmixo).not) {
+	ModalSpec(#[0, 2, 4, 5, 7, 9, 10], 12, 2) => Mode(\dmixo);
+};
 
 Proto({
-	~event = (eventKey: \voicerNote);
-	~voicer = v;  // change this
+	~event = (eventKey: \voicerNote, immediateOSC: true);
 	~mode = \dmixo;
 	~model = BP(\ml);
 	// try to make vertical and horizontal work as sonorities
@@ -207,16 +276,50 @@ Proto({
 
 	~prep = {
 		~event.parent = ProtoEvent(\voicerNote).v.parent;
+		~resp = SimpleController(~model).put(\allPtsReceived, e {
+			~respond.();
+		});
+		~gridNodes = Array.fill(~model.points.size, nil);
 		currentEnvironment
+	};
+
+	~freeCleanup = {
+		~resp.remove;
+	};
+
+	~respond = {
+		var ind = ~gridNodes.collectIndicesOfItem(nil),
+			pts, ev;
+		if(ind.size > 0) {
+			pts = [ind, ~model.points[ind]].flop.sort { |a, b| a[1].mag.last > b[1].mag.last };
+			ind = pts[0][0];
+			ev = ~event.copy.putAll((
+				freq: ~chords[ind % 5][ind div: 5],
+				mode: ~mode,
+				delta: 1,
+				length: 2,
+				gate: 0.1,
+				pan: 0
+			)).play;
+			pts = nil;
+			~gridNodes[ind] = ev.nodes[0];
+			OSCFunc(OSCArgsMatcher([ev.nodes[0].synth.nodeID.debug("nodeid")], e {
+				~gridNodes[ind] = nil;  // free up to play again
+			}), '/n_end', s.addr).oneShot;
+		};
 	};
 }) => BP(\swells);
 )
 
+VC(\fms).free;
+Fact(\fmswells) => VC(\fms);
+VC(\fms) => BP(\swells);
+
 
 p = Pbind(
-	\voicer, v,
-	// \freq, Pseq(~chords, 1),
-	\freq, Pseq(~chords.flop, 1),
+	\voicer, VC(\fms).v,
+	\freq, Pseq(~chords, 1),
+	// \freq, Pseq(~chords.flop, 1),
 	\mode, \dmixo,
 	\delta, 4,
 	\length, 2.5,
@@ -224,3 +327,13 @@ p = Pbind(
 ).play(protoEvent: ProtoEvent(\voicerNote).copy);
 
 p.stop;
+
+ProtoEvent(\voicerNote).copy
+			ev = (
+				freq: ~chords[ind % 5][ind div: 5],
+				mode: ~mode,
+				delta: 1,
+				length: 2,
+				gate: 0.1,
+				pan: 0
+			).play;
