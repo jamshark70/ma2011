@@ -9,6 +9,7 @@ if(Func.exists(\ma2011dir)) {
 
 (dir +/+ "perf/loadVideo.scd").loadPath;
 )
+();
 
 s.boot;
 
@@ -124,25 +125,51 @@ u.put(\allPtsReceived, {
 
 Library.at(WrapInstr, \osc2).keys
 
-WrapInstr("osc2.fm2carpan", { |pan = 0|
-	Pan2.ar(WrapInstr.wrap("osc2.fm2car"), pan)
-}, [\bipolar]);
+// hack: pass gate and mod_vs to mod_env
+WrapInstr("osc2.fm2carpan", { |pan = 0, gate = 1, mod_env, mod_vs = 0|
+	mod_env = mod_env.dereference.value(gate, mod_vs);
+	Pan2.ar(
+		WrapInstr.wrap("osc2.fm2car", [
+			nil, gate, nil, mod_env, nil, nil, nil, nil, nil, nil, nil,
+			mod_vs
+		]),
+		pan
+	)
+}, [\bipolar, #[0, 1], EnvSpec(Env.one), #[0, 1]]);
 
 WrapInstr("osc2.fm2carpan").listArgs
 
 WrapInstr("osc2.fm2car").openFile;
 
-( channel: 0, initArgs, target, bus, ctlChannel, makeVoicerFunc )
-
-MIDIPort.init;
+"~/share/SC/quarks/dewdrop_lib/ddwChucklib/Prototypes/devPreMIDIcfg.scd".loadPath;
+MIDIPort.init(~srcInports);
 
 v = WrapInstr("osc2.fm2carpan").miditest(0, [
 	car_env: Env.adsr(0.8, 0.4, 0.6, 2.8),
-	// nil, // mod_env: Env.adsr( attackTime: 0.01, decayTime: 0.3, sustainLevel: 0.5, releaseTime: 1, peakLevel: 1, curve: -4, bias: 0 )
-	car_buf: ~cb, mod_buf: ~mb
+	mod_env: `{ |gate|
+		// maybe NamedControl for time sensitivity?
+		Env([1, gate.linlin(0, 1, 1, 1.6), 1], [gate.linexp(0, 1, 2, 0.2), gate.linexp(0, 1, 3.3, 0.7)])
+	},
+	car_buf: ~cb, mod_buf: ~mb,
+	mod_lev: 1.8037946271776,
+	mod_ratio: 4,
+	detune: -0.19685039370079,
+	car_detune: 1.0052043765621,
+	car_vs: 0.79527559055118,
+	mod_vs: 0.37795275590551,
+	basefreq: 440,
+	keyscale: 0.33736499154165,
 ], target: m);
 
 v.nodes[0].insp
+
+a = {
+	var	x = DC.kr(0.5),
+		t = Impulse.kr(0);
+	x.linlin(0, 1, [1, 2], [2, 4]).poll(t);
+	FreeSelf.kr(t <= 0);
+	0
+}.play;
 
 
 p = Pbind(
@@ -156,12 +183,44 @@ p = Pbind(
 
 p.stop;
 
-\pan, 0, 
-\mod_lev, 1.028059363652, 
-\mod_ratio, 2, 
-\detune, 0.61800003051758, 
-\car_detune, 1.0028868434838, 
-\car_vs, 0, 
-\mod_vs, 0, 
-\basefreq, 440, 
-\keyscale, 0.28880180238151, 
+
+// Mode(\default).v.copy.root_(2) => Mode(\d);
+ModalSpec(#[0, 2, 4, 5, 7, 9, 10], 12, 2) => Mode(\dmixo);
+
+(
+BP(\swells).free;
+
+Proto({
+	~event = (eventKey: \voicerNote);
+	~voicer = v;  // change this
+	~mode = \dmixo;
+	~model = BP(\ml);
+	// try to make vertical and horizontal work as sonorities
+	// only the middle one is cheezy
+	~chords = [
+		#[21, 25, 28, 31, 33],
+		#[28, 31, 32, 36, 40],
+		#[29, 33, 34, 37, 42],
+		#[31, 36, 37, 40, 46],
+		#[34.5, 38, 43, 44, 47]
+	];
+
+	~prep = {
+		~event.parent = ProtoEvent(\voicerNote).v.parent;
+		currentEnvironment
+	};
+}) => BP(\swells);
+)
+
+
+p = Pbind(
+	\voicer, v,
+	// \freq, Pseq(~chords, 1),
+	\freq, Pseq(~chords.flop, 1),
+	\mode, \dmixo,
+	\delta, 4,
+	\length, 2.5,
+	\gate, 0.5
+).play(protoEvent: ProtoEvent(\voicerNote).copy);
+
+p.stop;
