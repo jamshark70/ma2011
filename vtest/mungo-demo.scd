@@ -96,11 +96,16 @@ BP(\ml).points.do { |pt| [pt.x_origin, pt.y_origin].postln }; ""
 
 .mag.mean
 
+u.remove;
 u = SimpleController(BP(\ml));
 u.put(\allPtsReceived, nil);
 
 u.put(\allPtsReceived, {
 	topEnvironment[\dataBus].setn(BP(\ml).points.collect({ |pt| [pt.mag.mean, pt.angle] }).flat)
+});
+
+u.put(\allPtsReceived, {
+	BP(\ml).points.collect({ |pt| pt.mag.last }).maxItem.postln;
 });
 
 
@@ -260,10 +265,11 @@ if(Mode.exists(\dmixo).not) {
 	ModalSpec(#[0, 2, 4, 5, 7, 9, 10], 12, 2) => Mode(\dmixo);
 };
 
-Proto({
+PR(\abstractProcess).clone({
 	~event = (eventKey: \voicerNote, immediateOSC: true);
 	~mode = \dmixo;
 	~model = BP(\ml);
+	~magThresh = 80000;
 	// try to make vertical and horizontal work as sonorities
 	// only the middle one is cheezy
 	~chords = [
@@ -280,6 +286,7 @@ Proto({
 			~respond.();
 		});
 		~gridNodes = Array.fill(~model.points.size, nil);
+		~makeStreamForKey.(\notePat);
 		currentEnvironment
 	};
 
@@ -287,25 +294,35 @@ Proto({
 		~resp.remove;
 	};
 
+	~freq = Pfunc({ |ev| ~chords[4 - (ev[\i] % 5)][ev[\i] div: 5] });
+	~delta = 1;
+	~length = Pfunc({ |ev| ~model.points[ev[\i]].mag.last.linlin(20000, 300000, 2.5, 0.6) });
+	~gate = Pfunc({ |ev| ~model.points[ev[\i]].mag.last.linlin(20000, 300000, 0.02, 0.15) });
+	~pan = Pkey(\i).linlin(0, 24, -0.9, 0.9);
+
+	~notePat = Pbind(
+		\freq, BPStream(\freq),
+		\mode, BPStream(\mode),
+		\delta, BPStream(\delta),
+		\length, BPStream(\length),
+		\gate, BPStream(\gate),
+		\pan, BPStream(\pan)
+	);
+
 	~respond = {
 		var ind = ~gridNodes.collectIndicesOfItem(nil),
-			pts, ev;
+		pts, ev;
 		if(ind.size > 0) {
 			pts = [ind, ~model.points[ind]].flop.sort { |a, b| a[1].mag.last > b[1].mag.last };
-			ind = pts[0][0];
-			ev = ~event.copy.putAll((
-				freq: ~chords[ind % 5][ind div: 5],
-				mode: ~mode,
-				delta: 1,
-				length: 2,
-				gate: 0.1,
-				pan: 0
-			)).play;
-			pts = nil;
-			~gridNodes[ind] = ev.nodes[0];
-			OSCFunc(OSCArgsMatcher([ev.nodes[0].synth.nodeID.debug("nodeid")], e {
-				~gridNodes[ind] = nil;  // free up to play again
-			}), '/n_end', s.addr).oneShot;
+			if(pts[0][1].mag.last >= ~magThresh) {
+				ind = pts[0][0];
+				ev = ~notePatStream.next(~event.copy.put(\i, ind)).play;
+				pts = nil;
+				~gridNodes[ind] = ev.nodes[0];
+				OSCFunc(OSCArgsMatcher([ev.nodes[0].synth.nodeID], e {
+					~gridNodes[ind] = nil;  // free up to play again
+				}), '/n_end', s.addr).oneShot;
+			};
 		};
 	};
 }) => BP(\swells);
@@ -315,6 +332,9 @@ VC(\fms).free;
 Fact(\fmswells) => VC(\fms);
 VC(\fms) => BP(\swells);
 
+MixingBoard.at(0).add(VC(\fms));
+
+BP(\swells).gridNodes
 
 p = Pbind(
 	\voicer, VC(\fms).v,
@@ -328,12 +348,3 @@ p = Pbind(
 
 p.stop;
 
-ProtoEvent(\voicerNote).copy
-			ev = (
-				freq: ~chords[ind % 5][ind div: 5],
-				mode: ~mode,
-				delta: 1,
-				length: 2,
-				gate: 0.1,
-				pan: 0
-			).play;
