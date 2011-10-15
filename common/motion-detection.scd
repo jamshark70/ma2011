@@ -250,6 +250,7 @@ Proto({
 			~handshakeThread = nil;
 			~pdAddr.tryPerform(\sendMsg, \noiseReduction, ~noiseReduction.value);
 			"Communication with pd is established.".postln;
+			NotificationCenter.notify(PR(~collIndex), \handsShook);
 		}, '/handshakeReply', nil).oneShot;
 		~handshakeThread = Task({
 			loop {
