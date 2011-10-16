@@ -111,10 +111,21 @@ p = Pbind(
 	\dur, Pexprand(0.065, 0.2, inf).collect { |dur|
 		// almost: sometimes notes are very short, sounds like polyphony
 		var	rounded = min(0.125, dur.round(0.125)) - (thisThread.beats % 0.125);
+		if(rounded < 0.125) { rounded = rounded + 0.125 };
 		dur.blend(rounded, g.value)
 	},
 	\sustain, 0.2,
 	\gate, 0.02
-).collect({ |ev| thisThread.beats.postln; ev }).play(quant: 1);
+);
 
-p.stop;
+q = Ppar(
+	Array.fill(4, { |i|
+		Pbind(
+			\pan, i / 1.5 - 1,
+			\degree, Pkey(\degree) + ((i - 1) * 7)
+		) <> p
+	})
+).play;
+
+q.stop;
+
