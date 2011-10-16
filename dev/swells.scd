@@ -13,7 +13,7 @@ s.waitForBoot {
 	(PR.filenameSymbol.asString.dirname +/+ "Prototypes/devPreMIDIcfg.scd").loadPath;
 	MIDIPort.init(~srcInports);
 
-	\makeEmptyMixer8.eval;
+	if(MCG.exists(0).not) { \makeEmptyMixer8.eval };
 
 	(
 		make: { |name|
@@ -25,7 +25,9 @@ s.waitForBoot {
 				buf.sine1Msg(#[1]);
 			});
 
-			~target = MixerChannel(name, s, 2, 2, level: -14.dbamp);
+			~target = MixerChannel(name, s, 2, 2, level: -14.dbamp, completionFunc: { |chan|
+				~chorus = chan.playfx(Instr("busfx.chorus2"), [0, 2, 2, 3, 0.014167105136785, 0.19588449229906, 0.0043807130665488, 1.0587166695817, 0.52384156530821]);
+			});
 
 			// hack: pass gate and mod_vs to mod_env
 			WrapInstr("osc2.fm2carpan", { |pan = 0, gate = 1, mod_env, mod_vs = 0|
@@ -66,7 +68,7 @@ s.waitForBoot {
 				detune: -0.19685039370079,
 				car_detune: 1.0052043765621,
 				car_vs: 0.79527559055118,
-				mod_vs: 0.37795275590551,
+				mod_vs: 0.73030000925064,
 				basefreq: 440,
 				keyscale: 0.33736499154165,
 			].pairsDo { |name, value|
@@ -75,7 +77,8 @@ s.waitForBoot {
 			out
 		},
 		free: { [~target, ~cb, ~mb].free },
-		type: \voicer) => Fact(\fmswells);
+		type: \voicer
+	) => Fact(\fmswells);
 
 	if(Mode.exists(\dmixo).not) {
 		ModalSpec(#[0, 2, 4, 5, 7, 9, 10], 12, 2) => Mode(\dmixo);
@@ -84,7 +87,7 @@ s.waitForBoot {
 	PR(\abstractProcess).clone({
 		~event = (eventKey: \voicerNote, immediateOSC: true);
 		~mode = \dmixo;
-		~magThresh = 80000;
+		~magThresh = 40000;
 		// try to make vertical and horizontal work as sonorities
 		// only the middle one is cheezy
 		~chords = [
@@ -93,7 +96,7 @@ s.waitForBoot {
 			#[29, 33, 34, 37, 42],
 			#[31, 36, 37, 40, 46],
 			#[34.5, 38, 43, 44, 47]
-		];
+		].flop;
 
 		~prep = {
 			~event.parent = ProtoEvent(\voicerNote).v.parent;
@@ -111,7 +114,9 @@ s.waitForBoot {
 
 		~freq = Pfunc({ |ev| ~chords[4 - (ev[\i] % 5)][ev[\i] div: 5] });
 		~delta = 1;
-		~length = Pfunc({ |ev| ~model.points[ev[\i]].mag.last.linlin(20000, 300000, 2.5, 0.6) });
+		~length = Pfunc({ |ev|
+			~model.points[ev[\i]].mag.last.linlin(~magThresh, 300000, 5.5, 0.6)
+		});
 		~gate = Pfunc({ |ev| ~model.points[ev[\i]].mag.last.linlin(20000, 300000, 0.02, 0.15) });
 		~pan = Pkey(\i).linlin(0, 24, -0.9, 0.9);
 
@@ -151,10 +156,3 @@ s.waitForBoot {
 	VC(\fms) => BP(\swells);
 	VC(\fms) => MCG(0);
 };
-
-
-BP(\swells).length = Pfunc({ |ev| ~model.points[ev[\i]].mag.last.linlin(~magThresh, 300000, 5.5, 0.6) });
-
-BP(\swells).magThresh = 40000;
-
-BP(\swells).chords = BP(\swells).chords.flop;

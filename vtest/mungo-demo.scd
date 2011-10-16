@@ -333,6 +333,7 @@ Fact(\fmswells) => VC(\fms);
 VC(\fms) => BP(\swells);
 
 MixingBoard.at(0).add(VC(\fms));
+VC(\fms) => MCG(1);
 
 BP(\swells).gridNodes
 
@@ -348,3 +349,28 @@ p = Pbind(
 
 p.stop;
 
+
+
+
+// improve the sound
+VC(\fms).v.gui;
+
+k = VoicerMIDISocket(0, VC(\fms).v.proxy);
+
+VC(\fms).v.globalControlsByCreation.do { |gc|
+	k.addControl(nil, gc.name);
+};
+
+VC(\fms).v.globalControlsByCreation[0].proxy.dump
+
+Instr("busfx.chorus2").openFile
+
+k.noteOnArgsPat = Pbind(\pan, Pseq(#[-0.9, 0.9], inf));
+
+Instr("busfx.chorus2").listArgs
+
+p = VC(\fms).env.target.playfx(Instr("busfx.chorus2"), [0, 2, 2, 3]); p.gui;
+
+VC(\fms).v.nodes[0].initArgs
+
+k.noteOnArgsPat = Pbind(\mod_ratio, Pwhite(1, 6, inf));
