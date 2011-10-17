@@ -12,12 +12,14 @@ if(Func.exists(\ma2011dir)) {
 
 ();
 
-s.boot;
+// s.boot;
 
-"~/share/SC/quarks/dewdrop_lib/ddwChucklib/Prototypes/devPreMIDIcfg.scd".loadPath;
-MIDIPort.init(~srcInports);
+// "~/share/SC/quarks/dewdrop_lib/ddwChucklib/Prototypes/devPreMIDIcfg.scd".loadPath;
+// MIDIPort.init(~srcInports);
 
-\makeEmptyMixer8.eval;
+// \makeEmptyMixer8.eval;
+
+BP.loadGui;
 
 m = MixerChannel(\demo, s, 2, 2);
 m => MCG(0);
@@ -101,7 +103,7 @@ VC(\pl) => MCG(2);
 k = VoicerMIDISocket(0, VC(\pl).v);
 
 g = GenericGlobalControl(\sync, nil, 0);
-g.gui;
+g => VP(0);
 
 p = Pbind(
 	\type, \voicerNote,
@@ -109,7 +111,6 @@ p = Pbind(
 	\degree, Pxrand((-7 .. 7), inf),
 	\root, 2,
 	\dur, Pexprand(0.065, 0.2, inf).collect { |dur|
-		// almost: sometimes notes are very short, sounds like polyphony
 		var	rounded = min(0.125, dur.round(0.125)) - (thisThread.beats % 0.125);
 		if(rounded < 0.125) { rounded = rounded + 0.125 };
 		dur.blend(rounded, g.value)
@@ -128,4 +129,36 @@ q = Ppar(
 ).play;
 
 q.stop;
+
+~rvbchan = MixerChannel(\rvb, s, 2, 2, level: 2.sqrt, completionFunc: { |chan|
+	~rvb = chan.playfx(Instr("busfx.freeverb2"), [0, 1.0, 0.69659996032715, 0.078699998557568, 1.0]);
+	defer { ~rvb.gui };
+});
+~rvbchan => MCG(6);
+
+~hpchan = MixerChannel(\hp, s, 2, 2, level: 2.sqrt, outbus: ~rvbchan, completionFunc: { |chan|
+	~hp = chan.playfx(
+		Instr("busfx.hpf", { |bus, numChan = 1, freq|
+			HPF.ar(In.ar(bus, numChan), freq)
+		}, [\audiobus, StaticSpec(1, 8, \lin, 1), \freq]),
+		[0, 2, 300]
+	);
+	defer { ~hp.gui };
+});
+~hpchan => MCG(5);
+
+MixingBoard.at(0).refresh;
+
+Library.at(Instr, \busfx).keys
+Spec.specs.keys.select { |key| key.asString.containsi("") };
+
+PeakMonitor(~rvbchan)
+
+~hp.synth.trace
+~rvb.synth.trace
+
+~hpchan.level = 2.sqrt;
+~hpchan.synth.trace
+
+~rvbchan.level = 2.sqrt;
 
