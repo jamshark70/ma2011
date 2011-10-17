@@ -13,13 +13,13 @@ if(Func.exists(\ma2011dir)) {
 
 s.boot;
 
-m = MixerChannel(\demo, s, 2, 2);
-MixingBoard(\demo, nil, m);
-
 "~/share/SC/quarks/dewdrop_lib/ddwChucklib/Prototypes/devPreMIDIcfg.scd".loadPath;
 MIDIPort.init(~srcInports);
 
-MixerMIDIControl(\omni, nil, m);
+\makeEmptyMixer8.eval;
+
+m = MixerChannel(\demo, s, 2, 2);
+m => MCG(0);
 
 
 BP(\ml).points[0].listVars
