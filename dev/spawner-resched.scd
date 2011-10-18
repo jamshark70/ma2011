@@ -40,7 +40,7 @@ PR(\abstractProcess).clone({
 			SimpleController(esp).put(\stopped, e {
 				~players.at(esp).remove;  // dump the dependant
 				~players.removeAt(esp);
-				~players.size.debug("got stopped notification, remaining");
+				// ~players.size.debug("got stopped notification, remaining");
 			});
 		);
 	};
@@ -94,7 +94,7 @@ PR(\streamTrack).chuck(BP(\st), nil, (
 			.sort { |a, b| a[1].mag.last > b[1].mag.last };
 			if(pts[0][1].mag.last >= ~magThresh) {
 				// pass the point to makePattern
-				~addStream.(~makePattern.(pts[0][1], ind), ~pquant);
+				~addStream.(~makePattern.(pts[0][1], pts[0][0]), ~pquant);
 			};
 		// };
 	},
@@ -117,11 +117,11 @@ PR(\streamTrack).chuck(BP(\st), nil, (
 	delta: { Pexprand(0.1, 0.6, inf) },
 	quantize: Pfunc({ ~model.centroid.y * 0.5 + 0.5 }),
 	length: Pkey(\delta) * Pexprand(0.8, 1.7, inf),
-	gate: { |pt, i| Pgeom.fromEndpoints(0.8, 0.01, (pt.normmag * 25).round + 9) },
+	gate: { |pt, i| Pgeom.fromEndpoints(0.8, 0.01, (~model.normmag * 25).round + 9) },
 	pan: Pfunc({ ~model.centroid.x }),
 
-	makePattern: { |pt|		
-		DebugPbind(
+	makePattern: { |pt, i|
+		Pbind(
 			\freq, ~freq.(pt, i),
 			\quantize, ~quantize.(pt, i),
 			\delta, ~delta.(pt, i).collect { |dur, ev|
@@ -136,8 +136,10 @@ PR(\streamTrack).chuck(BP(\st), nil, (
 	}
 ));
 0.25 => BP(\st);
+if(VC.exists(\pl)) { VC(\pl) => BP(\st) };
 )
 
+BP(\st).stop;
 BP(\st).play;
 BP(\st).isPlaying;
 
