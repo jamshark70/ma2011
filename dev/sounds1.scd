@@ -132,7 +132,7 @@ q.stop;
 
 ~rvbchan = MixerChannel(\rvb, s, 2, 2, level: 2.sqrt, completionFunc: { |chan|
 	~rvb = chan.playfx(Instr("busfx.freeverb2"), [0, 1.0, 0.69659996032715, 0.078699998557568, 1.0]);
-	defer { ~rvb.gui };
+	//	defer { ~rvb.gui };
 });
 ~rvbchan => MCG(6);
 
@@ -143,7 +143,7 @@ q.stop;
 		}, [\audiobus, StaticSpec(1, 8, \lin, 1), \freq]),
 		[0, 2, 300]
 	);
-	defer { ~hp.gui };
+	// defer { ~hp.gui };
 });
 ~hpchan => MCG(5);
 
