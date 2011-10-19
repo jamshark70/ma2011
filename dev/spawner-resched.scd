@@ -40,9 +40,12 @@ PR(\abstractProcess).clone({
 			SimpleController(esp).put(\stopped, e {
 				~players.at(esp).remove;  // dump the dependant
 				~players.removeAt(esp);
+				~userRemoveStreamPlayer.(esp);
 				// ~players.size.debug("got stopped notification, remaining");
 			});
 		);
+		~userAddStreamPlayer.(esp);
+		esp
 	};
 	
 	~stopCleanup = {
@@ -71,10 +74,11 @@ PR(\streamTrack).chuck(BP(\st), nil, (
 	restEvent: (freq: #[], delta: 1, length: 1, gate: 1),
 	model: BP(\ml),
 	alwaysReset: true,
-	// userprep: {
-		
-	// },
-	// userfree: { ~resp.remove },
+	userprep: {
+		~syncMax = GenericGlobalControl(\syncMax, nil, 0.3);
+	},
+	userfree: { ~syncMax.free },
+	useGui: { |vpi| ~syncMax => VP(vpi) },
 
 	// this should not answer video data if not playing
 	preparePlay: {
@@ -87,16 +91,14 @@ PR(\streamTrack).chuck(BP(\st), nil, (
 	pquant: 0.25,
 
 	respond: {
-		var ind, // = ~gridNodes.collectIndicesOfItem(nil),
-		pts, ev;
-		// if(ind.size > 0) {
-			pts = [(0..24), ~model.points/*[ind]*/].flop
-			.sort { |a, b| a[1].mag.last > b[1].mag.last };
-			if(pts[0][1].mag.last >= ~magThresh) {
-				// pass the point to makePattern
-				~addStream.(~makePattern.(pts[0][1], pts[0][0]), ~pquant);
-			};
-		// };
+		var pts, esp;
+		pts = [(0..24), ~model.points/*[ind]*/].flop
+		.sort { |a, b| a[1].mag.last > b[1].mag.last };
+		if(~gridStreams[pts[0][0]].isNil and: { pts[0][1].mag.last >= ~magThresh }) {
+			// pass the point to makePattern
+			esp = ~addStream.(~makePattern.(pts[0][1], pts[0][0]), ~pquant);
+			~gridStreams[pts[0][0]] = esp;
+		};
 	},
 
 	chords: [
@@ -117,10 +119,13 @@ PR(\streamTrack).chuck(BP(\st), nil, (
 	delta: { Pexprand(0.1, 0.6, inf) },
 	quantize: Pfunc({ ~model.centroid.y * 0.5 + 0.5 }),
 	length: Pkey(\delta) * Pexprand(0.8, 1.7, inf),
-	gate: { |pt, i| Pgeom.fromEndpoints(0.8, 0.01, (~model.normmag * 25).round + 9) },
+	gate: { |pt, i| Pgeom.fromEndpoints(0.8, 0.01, ~numEvents) },
 	pan: Pfunc({ ~model.centroid.x }),
 
+	calcNumEvents: { /*|pt, i|*/ (~model.normmag * 25).round.asInteger + 9 },
+
 	makePattern: { |pt, i|
+		~numEvents = ~calcNumEvents.(pt, i);  // bah, tired of passing everything as args
 		Pbind(
 			\freq, ~freq.(pt, i),
 			\quantize, ~quantize.(pt, i),
@@ -133,15 +138,50 @@ PR(\streamTrack).chuck(BP(\st), nil, (
 			\gate, ~gate.(pt, i),
 			\pan, ~pan.(pt, i)
 		)
+	},
+	userRemoveStreamPlayer: { |esp|
+		~gridStreams = ~gridStreams.replace(esp, #[nil]);
 	}
 ));
 0.25 => BP(\st);
 if(VC.exists(\pl)) { VC(\pl) => BP(\st) };
 )
 
+BP(\st) => MT(1);
+BP(\st) => VP(0);
+
 BP(\st).stop;
 BP(\st).play;
 BP(\st).isPlaying;
+
+BP(\st).gridStreams = Array.newClear(25);
+
+BP(\st).qcurve = -4;
+BP(\st).quantize = { |pt, i|
+	var env = Env([0, ~syncMax.value], [1], ~qcurve), p;
+	p = Pseries.fromEndpoints(0, 1, (~numEvents * 0.75).asInteger).collect { |i| env.at(i) };
+};
+
+BP(\st).quantize = { ~syncMax };
+BP(\st).gate = { |pt, i|
+	var n = rrand(2, 4), env, large = (~numEvents * 0.8).asInteger;
+	env = Env(
+		([0.8, 0.1] ! n).flat,
+		[large, ~numEvents - large]
+			.collect { |z, i| z.partition(n - i, 1) }
+			.lace(n*2 - 1),
+		~qcurve ?? { -4 }
+	);
+	Pseries(0, 1, ~numEvents).collect({ |i| env.at(i) })
+};
+
+n = 3;
+x = (35 * 0.8).asInteger;
+[x, 35-x].collect { |z, i| z.partition(n*2 - i - 1, 1) }.lace(n*4 - 3)
+
+[[0, 1, 2], [3, 4]].lace(5)
+
+Pattern
 
 BP(\st).addStream(Pbind(
 	\degree, Pwhite(-7, 7, inf),
