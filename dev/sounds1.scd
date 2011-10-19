@@ -147,6 +147,10 @@ q.stop;
 });
 ~hpchan => MCG(5);
 
+VC(\pl).env.target.newPostSend(~hpchan, 0.86);
+
+VC(\pl).env.target.postSends.do(_.free)
+
 MixingBoard.at(0).refresh;
 
 Library.at(Instr, \busfx).keys
