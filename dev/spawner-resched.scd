@@ -69,13 +69,19 @@ PR(\abstractProcess).clone({
 
 (
 BP(\st).free;
+
+if(Mode.exists(\d).not) { ModalSpec(#[0, 2, 4, 5, 7, 9, 11], 12, 2) => Mode(\d) };
+
 PR(\streamTrack).chuck(BP(\st), nil, (
-	event: (eventKey: \voicerNote),
+	event: (eventKey: \voicerNote, midi: true, midiNoteToFreq: _.midicps),
 	restEvent: (freq: #[], delta: 1, length: 1, gate: 1),
 	model: BP(\ml),
 	alwaysReset: true,
 	userprep: {
 		~syncMax = GenericGlobalControl(\syncMax, nil, 0.3);
+		~gridStreams = Array.newClear(~model.points.size);
+		~oldChords = ~chords;
+		currentEnvironment
 	},
 	userfree: { ~syncMax.free },
 	useGui: { |vpi| ~syncMax => VP(vpi) },
@@ -116,18 +122,54 @@ PR(\streamTrack).chuck(BP(\st), nil, (
 	// pitch (most active pt)
 
 	freq: { |pt, i| ~chords[4 - (i % 5)][i div: 5] },
+	oldFreq: { |pt, i| (~oldChords ? ~chords)[4 - (i % 5)][i div: 5] },
 	delta: { Pexprand(0.1, 0.6, inf) },
 	quantize: Pfunc({ ~model.centroid.y * 0.5 + 0.5 }),
 	length: Pkey(\delta) * Pexprand(0.8, 1.7, inf),
 	gate: { |pt, i| Pgeom.fromEndpoints(0.8, 0.01, ~numEvents) },
 	pan: Pfunc({ ~model.centroid.x }),
+	mode: \d,
+	modePat: { BPStream(\mode) },
+	blend: 1,
+	mod_ratio: { rrand(1, 4) },
+	mod_lev: Pfunc({ ~model.centroid.y.linlin(-1, 1, 6.0, 0.3) }),
+
+	qcurve: -4,
+	// tried it, didn't like it - effect was not clear
+	// quantize: { |pt, i|
+	// 	var env = Env([0, ~syncMax.value], [1], ~qcurve), p;
+	// 	p = Pseries.fromEndpoints(0, 1, (~numEvents * 0.75).asInteger).collect { |i| env.at(i) };
+	// },
+
+	quantize: { ~syncMax },
+	gate: { |pt, i|
+		var n = rrand(2, 4), env, large = (~numEvents * 0.8).asInteger;
+		env = Env(
+			([0.8, 0.1] ! n).flat,
+			[large, ~numEvents - large]
+			.collect { |z, i| z.partition(n - i, 1) }
+			.lace(n*2 - 1),
+			~qcurve ?? { -4 }
+		);
+		Pseries(0, 1, ~numEvents).collect({ |i| env.at(i) })
+	},
 
 	calcNumEvents: { /*|pt, i|*/ (~model.normmag * 25).round.asInteger + 9 },
 
 	makePattern: { |pt, i|
 		~numEvents = ~calcNumEvents.(pt, i);  // bah, tired of passing everything as args
 		Pbind(
-			\freq, ~freq.(pt, i),
+			\mode, ~modePat.(pt, i),
+			\oldDegree, ~oldFreq.(pt, i),
+			\degree, ~freq.(pt, i),
+			\blend, BPStream(\blend),
+			\freq, Pfunc({ |ev|
+				var	f0 = ev[\oldDegree].unmapMode(ev[\oldMode] ? ev[\mode]),
+					f1 = ev[\degree].unmapMode(ev[\mode]);
+				blend(f0, f1, ev[\blend])
+			}),
+			\mod_ratio, ~mod_ratio.(pt, i),
+			\mod_lev, ~mod_lev.(pt, i),
 			\quantize, ~quantize.(pt, i),
 			\delta, ~delta.(pt, i).collect { |dur, ev|
 				var	rounded = min(~pquant, dur.round(~pquant)) - (thisThread.beats % ~pquant);
@@ -175,26 +217,65 @@ BP(\st).gate = { |pt, i|
 	Pseries(0, 1, ~numEvents).collect({ |i| env.at(i) })
 };
 
-n = 3;
-x = (35 * 0.8).asInteger;
-[x, 35-x].collect { |z, i| z.partition(n*2 - i - 1, 1) }.lace(n*4 - 3)
 
-[[0, 1, 2], [3, 4]].lace(5)
+Mode(\d).v.transposeRoot(newRoot: 0).postcs
+Mode(\default).v.copy.root_(4).postcs.transposeRoot(2).postcs
 
-Pattern
+do((0..11)) { |i|
+	var	name = i.asMIDINote(5).reject(_.isDecDigit).replace("#", "s").toLower.asSymbol;
+	Mode(\default).v.copy.root_(i).transposeRoot(2) => Mode(name);
+};
 
-BP(\st).addStream(Pbind(
-	\degree, Pwhite(-7, 7, inf),
-	\dur, 0.25
-));
+do((0..11)) { |i|
+	var	name = i.asMIDINote(5).reject(_.isDecDigit).replace("#", "s").toLower.asSymbol;
+	Mode(\default).v.copy.root_(i)/*.transposeRoot(2)*/ => Mode(name);
+};
 
-BP(\st).addStream(Pbind(
-	\degree, Pseries(7, 1, 8),
-	\dur, 0.25
-));
+// kind of weird Gavin Bryars-y thing going on here
+BP(\st).mode = Pstutter(Pwhite(100, 190, inf), Pxrand(#[a, as, b, c, cs, d, ds, e, f, fs, g, gs], inf).trace);
 
-BP(\st).stop(0);
+#[a, as, b, c, cs, d, ds, e, f, fs, g, gs].do { |key| [key, Mode(key).v.asCompileString].postln };
 
 BP(\st).v[\asPattern].postcs
+BP(\st).origChords = BP(\st).chords;
+
+BP(\st).chordChangeBeats = Pwhite(12, 20, inf);
+BP(\st).asPattern = {
+	~chordChangeBeatsStream ?? { ~makeStreamForKey.(\chordChangeBeats) };
+	Prout({ |inevent|
+		var beats;
+		loop {
+			~changeChords.(inevent);
+			beats = ~chordChangeBeatsStream.next(inevent);
+			beats.do {
+				inevent = 1.yield;
+			};
+			if(beats.frac != 0) { inevent = beats.frac.yield };
+		};
+	})
+};
+
+BP(\st).changeChordMode = \patRejectLastN.eval(Pxrand(#[a, as, b, c, cs, d, ds, e, f, fs, g, gs], inf), 6);
+BP(\st).xIntervals = Pwhite(3, 6, inf);
+BP(\st).yIntervals = Pwhite(1, 4, inf);
+
+BP(\st).changeChords = { |inevent|
+	~oldMode = ~mode;
+	~mode = ~changeChordModeStream.next(inevent).debug("mode");
+	~oldChords = ~chords;
+	~chords = Pseries(21, ~xIntervals, ~model.dim).collect { |bass|
+		Pseries(bass, ~yIntervals, ~model.dim).asStream.all
+	}.asStream.all;
+	// not convinced... maybe blend with long tones
+	~blend = 1; // Plazy({ Env(#[0, 1], [rrand(0.4, 0.9)]) });
+};
+
+BP(\st).chords.do(_.postln); ""
 
 BP(\st).listVars
+
+BP(\st).event[\midiNoteToFreq] = _.midicps;
+
+BP(\st).event[\midiNoteToFreq].def.dumpByteCodes
+
+BP(\st).mod_lev = Pfunc({ ~model.centroid.y.linlin(-1, 1, 6.0, 0.3) });
