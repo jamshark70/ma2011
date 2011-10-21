@@ -22,6 +22,7 @@ p.stop;
 (
 PR(\abstractProcess).clone({
 	~restEvent = Event.silent(1);
+	~autoStopChildren = true;
 	~prep = {
 		~players = IdentityDictionary.new;
 		~userprep.();
@@ -53,10 +54,12 @@ PR(\abstractProcess).clone({
 		// the point of using keys.do is to iterate over a collection
 		// that is independent of the collection from which items will be removed
 		// have to do this now: if the SimpleController fires after 'free', kaboom
-		~players.keys.do { |esp|
-			~players.at(esp).remove;
-			~players.removeAt(esp);
-			esp.stop;
+		if(~autoStopChildren ? true) {
+			~players.keys.do { |esp|
+				~players.at(esp).remove;  // release the SimpleController dependant
+				~players.removeAt(esp);   // remove the esp from the collection
+				esp.stop;
+			};
 		};
 		~userStop.();
 	};
@@ -261,13 +264,13 @@ BP(\st).yIntervals = Pwhite(1, 4, inf);
 
 BP(\st).changeChords = { |inevent|
 	~oldMode = ~mode;
-	~mode = ~changeChordModeStream.next(inevent).debug("mode");
+	~mode = ~changeChordModeStream.next(inevent);
 	~oldChords = ~chords;
 	~chords = Pseries(21, ~xIntervals, ~model.dim).collect { |bass|
 		Pseries(bass, ~yIntervals, ~model.dim).asStream.all
 	}.asStream.all;
 	// not convinced... maybe blend with long tones
-	~blend = 1; // Plazy({ Env(#[0, 1], [rrand(0.4, 0.9)]) });
+	~blend = Plazy({ Env(#[0, 1], [rrand(0.4, 0.8)]) });
 };
 
 BP(\st).chords.do(_.postln); ""
@@ -279,3 +282,44 @@ BP(\st).event[\midiNoteToFreq] = _.midicps;
 BP(\st).event[\midiNoteToFreq].def.dumpByteCodes
 
 BP(\st).mod_lev = Pfunc({ ~model.centroid.y.linlin(-1, 1, 6.0, 0.3) });
+
+
+
+// arpeggiator; reset pattern on "wipe" gesture (or any fast motion)
+// use streamtrack to have multiple layers at once
+(
+BP(\arp).free;
+
+PR(\streamTrack).chuck(BP(\arp), nil, (
+	// set ~model at chuck time
+	event: (eventKey: \voicerNote),
+	alwaysReset: true,
+
+	prep: {
+	},
+
+	preparePlay: {
+		~changeChordModeStream ?? { ~makeStreamForKey.(\changeChordMode) };
+		~resp = SimpleController(~model).put(\allPtsReceived, e { ~respond.() });
+	},
+	userStop: { ~resp.remove },
+
+	xIntervals: Pwhite(3, 6, inf),
+	yIntervals: Pwhite(1, 4, inf),
+	changeChordMode: \patRejectLastN.eval(Pxrand(#[a, as, b, c, cs, d, ds, e, f, fs, g, gs], inf), 6),
+
+	changeChords: { |inevent|
+		// ~oldMode = ~mode;
+		~mode = ~changeChordModeStream.next(inevent);
+		// ~oldChords = ~chords;
+		~chords = Pseries(21, ~xIntervals, ~model.dim).collect { |bass|
+			Pseries(bass, ~yIntervals, ~model.dim).asStream.all
+		}.asStream.all;
+		// not convinced... maybe blend with long tones
+		~blend = Plazy({ Env(#[0, 1], [rrand(0.4, 0.8)]) });
+	},
+
+	asPattern: {
+	}
+));
+)
