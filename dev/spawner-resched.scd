@@ -1,3 +1,6 @@
+// unknown: what is 'rho' typically in the anglepoint?
+
+
 
 // crap. doesn't work b/c 'nexttime' is already decided in the Spawner
 // can't move 'nexttime' earlier...
@@ -294,11 +297,17 @@ PR(\streamTrack).chuck(BP(\arp), nil, (
 	// set ~model at chuck time
 	event: (eventKey: \voicerNote),
 	alwaysReset: true,
+	pquant: 0.25,
+	magThresh: 0.7,  // ??
+	angleThresh: 0.25,  // radians
+	maxPlayers: 8,
 
-	prep: {
-	},
+	// prep: {
+	// },
 
 	preparePlay: {
+		~angleDiffs = 0 ! 5;
+		~angleI = 0;
 		~changeChordModeStream ?? { ~makeStreamForKey.(\changeChordMode) };
 		~resp = SimpleController(~model).put(\allPtsReceived, e { ~respond.() });
 	},
@@ -319,7 +328,92 @@ PR(\streamTrack).chuck(BP(\arp), nil, (
 		~blend = Plazy({ Env(#[0, 1], [rrand(0.4, 0.8)]) });
 	},
 
-	asPattern: {
+	respond: {
+		var angle = ~model.anglePoint.theta - ~prevAngle,
+		diff = angle - prevAngle,
+		temp;
+		if(diff.inclusivelyBetween(-pi, pi).not) { diff = (2pi - diff).wrap(-pi, pi) };
+		~angleI = ~angleI + 1;
+		~angleDiffs[~angleI] = diff;
+		// heavier lifting only if we pass the threshold test
+		if(~players.size < ~maxPlayers and: { ~model.normmag >= ~magThresh }) {
+			temp = ~angleDiffs.copy;
+			temp.remove(temp.minItem);
+			temp.remove(temp.maxItem);
+			if(temp.every(_.inclusivelyBetween(~angleThresh.neg, ~angleThresh))) {
+				esp = ~addStream.(~makePattern.(), ~pquant);
+				// ~gridStreams[pts[0][0]] = esp;
+			};
+		};
+	},
+
+	xPat: { |pt, i|
+		// yPat will reuse this
+		~incrTempPolar = ~model.anglePoint.asPolar;
+		Pseries(~model.centroid.x, cos(~incrTempPolar.theta) * ~incrTempPolar.rho, inf)
+		.round.asInteger % ~model.dim
+	},
+	yPat: { |pt, i|
+		var y = ~model.centroid.y, oldY,
+		incr = sin(~incrTempPolar.theta) * ~incrTempPolar.rho,
+		incrSign = (incr >= 0) * 2 - 1,
+		xdiff = Pdiff(Pkey(\x)).asStream;
+		Prout({ |inval|
+			loop {
+				inval = (~model.dim - 1 - y.round.asInteger).yield;
+				oldY = y;
+				y = y - incr;
+				// x is calculated by floats but passed here as integers
+				// so this checks the actual x coordinate's movement
+				if(xdiff.next(inval) == 0 and: { y.round == oldY.round }) {
+					y = y - incrSign;
+				};
+				y = y % ~model.dim;
+			}
+		})
+	},
+	freq: { |pt, i|
+		Pfunc({ |ev| ~chords[ev[\y]][ev[\x]] })
+	},
+	delta: { Pexprand(0.1, 0.6, inf) },
+	// quantize: Pfunc({ ~model.centroid.y * 0.5 + 0.5 }),
+	length: Pkey(\delta), // * Pexprand(0.8, 1.7, inf),
+	// frozen at start time - may try following x coordinate
+	pan: Pfunc({ ~model.centroid.x }),
+	mode: \d,
+	modePat: { BPStream(\mode) },
+	mod_ratio: 1, // { rrand(1, 4) },
+	mod_lev: Pfunc({ ~model.centroid.y.linlin(-1, 1, 2.0, 0.15) }),
+
+	qcurve: -4,
+
+	quantize: { ~syncMax },
+	gate: 0.2,
+
+	calcNumEvents: { /*|pt, i|*/ (~model.normmag * 25).round.asInteger + 9 },
+
+	makePattern: { // |pt, i|
+		~numEvents = ~calcNumEvents/*.(pt, i)*/;  // bah, tired of passing everything as args
+		Pbind(
+			\mode, ~modePat/*.(pt, i)*/,
+			\x, ~xPat/*.(pt, i)*/,
+			\y, ~yPat/*.(pt, i)*/,
+			\freq, ~freq/*.(pt, i)*/,
+			\mod_ratio, ~mod_ratio/*.(pt, i)*/,
+			\mod_lev, ~mod_lev/*.(pt, i)*/,
+			\quantize, ~quantize/*.(pt, i)*/,
+			\delta, ~delta/*.(pt, i)*/.collect { |dur, ev|
+				var	rounded = min(~pquant, dur.round(~pquant)) - (thisThread.beats % ~pquant);
+				if(rounded < ~pquant) { rounded = rounded + ~pquant };
+				dur.blend(rounded, ev[\quantize])
+			},
+			\length, ~length/*.(pt, i)*/,
+			\gate, ~gate/*.(pt, i)*/,
+			\pan, ~pan/*.(pt, i)*/
+		)
 	}
+
+	// asPattern: {
+	// }
 ));
 )
