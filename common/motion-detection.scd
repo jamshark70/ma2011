@@ -175,7 +175,10 @@ Proto({
 		~xbuf[~bufIndex] = ~rawCentroid.x;
 		~ybuf[~bufIndex] = ~rawCentroid.y;
 		~bufIndex = (~bufIndex + 1) % ~anglebufSize;
-		~anglePoint = Point(~xsum - ~prevXSum, ~ysum - ~prevYSum);
+		~anglePoint = Point(
+			(~xsum - ~prevXSum) / ~anglebufSize,
+			(~ysum - ~prevYSum) / ~anglebufSize
+		);
 		~centroid = Point(~xsum / ~anglebufSize, ~ysum / ~anglebufSize);
 
 		currentEnvironment
