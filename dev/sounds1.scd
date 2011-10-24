@@ -28,17 +28,31 @@ m => MCG(0);
 // a variant: shorter notes
 // flurries of faster notes --> pulse
 
+(
+WrapInstr("osc2.fm2car_v", { arg freq, gate, car_env, mod_env, mod_lev, mod_ratio, detune, car_detune,
+	car_buf, mod_buf, car_vs, mod_vs, basefreq, keyscale;
+	var sig, mod, car_amp, mod_amp;
+	car_amp = Latch.kr(Sensitivity.kr(1, gate, car_vs), gate);
+	mod_amp = Latch.kr(Sensitivity.kr(1, gate, mod_vs), gate)
+	* EnvGen.kr(mod_env, gate);
+	mod_lev = mod_lev * basefreq / ((keyscale * freq) + (basefreq * (1 - keyscale)));
+	mod = Osc.ar(mod_buf, freq.madd(mod_ratio * [1, car_detune], detune * [1, -1]), 0, mod_amp * mod_lev);
+	freq = freq * [1, car_detune];
+	sig = Mix(VOsc.ar(car_buf, freq + (mod * freq), 0, car_amp))
+	* EnvGen.kr(car_env, gate, doneAction:2)
+}, [\freq, \amp, EnvSpec(Env.adsr(0.01, 1, 1, 0.05)), EnvSpec(Env.adsr(0.01, 1, 1, 1)), [0.01, 300, \exponential], [1, 12, \linear, 0, 1], [-5, 5, \linear, 0, 0], \mydetune, \mybuf, \mybuf, nil, nil, \freq, [0.001, 1.0, \exp]]);
+
 WrapInstr("osc2.fm2carpan", { |pan = 0, gate = 1, mod_env, mod_vs = 0|
 	mod_env = mod_env.dereference.value(gate, mod_vs);
 	Pan2.ar(
-		WrapInstr.wrap("osc2.fm2car", [
+		WrapInstr.wrap("osc2.fm2car_v", [
 			nil, gate, nil, mod_env, nil, nil, nil, nil, nil, nil, nil,
 			mod_vs
 		]),
 		pan
 	)
 }, [\bipolar, #[0, 1], EnvSpec(Env.one), #[0, 1]]);
-
+)
 
 ~cb = Buffer.alloc(s, 2048, 1);
 ~mb = Buffer.alloc(s, 2048, 1);
