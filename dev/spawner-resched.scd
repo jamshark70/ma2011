@@ -10,6 +10,13 @@ u.put(\allPtsReceived, { |obj|
 });
 
 
+// IMPORTANT
+
+do((0..11)) { |i|
+	var	name = i.asMIDINote(5).reject(_.isDecDigit).replace("#", "s").toLower.asSymbol;
+	Mode(\default).v.copy.root_(i)/*.transposeRoot(2)*/ => Mode(name);
+};
+
 
 
 // crap. doesn't work b/c 'nexttime' is already decided in the Spawner
@@ -242,11 +249,6 @@ do((0..11)) { |i|
 	Mode(\default).v.copy.root_(i).transposeRoot(2) => Mode(name);
 };
 
-do((0..11)) { |i|
-	var	name = i.asMIDINote(5).reject(_.isDecDigit).replace("#", "s").toLower.asSymbol;
-	Mode(\default).v.copy.root_(i)/*.transposeRoot(2)*/ => Mode(name);
-};
-
 // kind of weird Gavin Bryars-y thing going on here
 BP(\st).mode = Pstutter(Pwhite(100, 190, inf), Pxrand(#[a, as, b, c, cs, d, ds, e, f, fs, g, gs], inf).trace);
 
@@ -309,19 +311,23 @@ PR(\streamTrack).chuck(BP(\arp), nil, (
 	model: BP(\ml),
 	alwaysReset: true,
 	pquant: 0.25,
-	magThresh: 0.7,  // ??
-	angleThresh: 0.25,  // radians
+	magThresh: 0.3,  // ??
+	angleThresh: 0.6,  // radians
 	maxPlayers: 8,
 	rhoScale: 7.5,  // assuming anglePoint.rho peaking about 0.25
 	restEvent: (freq: #[], delta: 1, length: 1, gate: 1),
-	// prep: {
-	// },
+	userprep: {
+		~syncMax = GenericGlobalControl(\maxsync, nil, 1);
+	},
+	userfree: { ~syncMax.free },
+	useGui: { |vpi| ~syncMax => VP(vpi) },
 
 	preparePlay: {
 		~angleDiffs = 0 ! 5;
 		~angleI = 0;
 		~prevAngle = 0;
 		~changeChordModeStream ?? { ~makeStreamForKey.(\changeChordMode) };
+		// if(~chords.isNil) { ~changeChords.() };
 		~resp = SimpleController(~model).put(\allPtsReceived, e { ~respond.() });
 	},
 	userStop: { ~resp.remove },
@@ -329,6 +335,7 @@ PR(\streamTrack).chuck(BP(\arp), nil, (
 	xIntervals: Pwhite(3, 6, inf),
 	yIntervals: Pwhite(1, 4, inf),
 	changeChordMode: \patRejectLastN.eval(Pxrand(#[a, as, b, c, cs, d, ds, e, f, fs, g, gs], inf), 6),
+	chordChangeBeats: Pwhite(8, 15, inf),
 
 	changeChords: { |inevent|
 		// ~oldMode = ~mode;
@@ -385,21 +392,22 @@ PR(\streamTrack).chuck(BP(\arp), nil, (
 		})
 	},
 	freq: { |pt, i|
-		Pfunc({ |ev| ~chords[ev[\y]][ev[\x]] })
+		// well, I shouldn't need wrapAt but somehow 'y' is negative sometimes?? WTF??
+		Pfunc({ |ev| ~chords.wrapAt(ev[\y]).wrapAt(ev[\x]) })
 	},
-	delta: { Pexprand(0.1, 0.6, inf) },
-	quantize: Pfunc({ ~model.centroid.y * 0.5 + 0.5 }),
+	delta: { Pexprand(0.2, 0.9, ~numEvents) },
+	// quantize: Pfunc({ ~model.centroid.y * 0.5 + 0.5 }),
 	length: Pkey(\delta), // * Pexprand(0.8, 1.7, inf),
 	// frozen at start time - may try following x coordinate
 	pan: Pfunc({ ~model.centroid.x }),
 	mode: \d,
 	modePat: { BPStream(\mode) },
 	mod_ratio: 1, // { rrand(1, 4) },
-	mod_lev: Pfunc({ ~model.centroid.y.linlin(-1, 1, 2.0, 0.15) }),
+	mod_lev: Pfunc({ ~model.centroid.y.linlin(-1, 1, 1.6, 0.15) }),
 
 	qcurve: -4,
 
-	// quantize: { ~syncMax },
+	quantize: { ~syncMax },
 	gate: 0.2,
 
 	calcNumEvents: { /*|pt, i|*/ (~model.normmag * 25).round.asInteger + 9 },
@@ -422,16 +430,28 @@ PR(\streamTrack).chuck(BP(\arp), nil, (
 			\length, ~length.()/*.(pt, i)*/,
 			\gate, ~gate.()/*.(pt, i)*/,
 			\pan, ~pan.()/*.(pt, i)*/
-		).collect { |ev|
-			#[x, y, freq].debug("x, y, freq");
-			ev
-		}
-	}
+		)
+	},
 
-	// asPattern: {
-	// }
+	asPattern: {
+		~chordChangeBeatsStream ?? { ~makeStreamForKey.(\chordChangeBeats) };
+		Prout({ |inevent|
+			var beats;
+			loop {
+				~changeChords.(inevent);
+				beats = ~chordChangeBeatsStream.next(inevent);
+				beats.do {
+					inevent = 1.yield;
+				};
+				if(beats.frac != 0) {
+					inevent = beats.frac.yield;
+				};
+			};
+		})
+	}
 ));
 0 => BP(\arp);
+if(VC.exists(\pl)) { VC(\pl) => BP(\arp) };
 )
 
 if(MT.exists(1).not) { MT(1).gui };
@@ -455,25 +475,28 @@ BP(\arp).angleThresh = 0.6;
 BP(\arp).restEvent = (freq: #[], delta: 1, length: 1, gate: 1);
 
 BP(\arp).makePattern = { // |pt, i|
-	~numEvents = ~calcNumEvents.()/*.(pt, i)*/;  // bah, tired of passing everything as args
-	Pbind(
-		\mode, ~modePat.()/*.(pt, i)*/,
-		\x, ~xPat.()/*.(pt, i)*/,
-		\y, ~yPat.()/*.(pt, i)*/,
-		\freq, ~freq.()/*.(pt, i)*/,
-		\mod_ratio, ~mod_ratio.()/*.(pt, i)*/,
-		\mod_lev, ~mod_lev.()/*.(pt, i)*/,
-		\quantize, ~quantize.()/*.(pt, i)*/,
-		\delta, ~delta.()/*.(pt, i)*/.collect { |dur, ev|
-			var	rounded = min(~pquant, dur.round(~pquant)) - (thisThread.beats % ~pquant);
-			if(rounded < ~pquant) { rounded = rounded + ~pquant };
-			dur.blend(rounded, ev[\quantize])
-		},
-		\length, ~length.()/*.(pt, i)*/,
-		\gate, ~gate.()/*.(pt, i)*/,
-		\pan, ~pan.()/*.(pt, i)*/
-	).trace(#[x, y, freq])
-};
+		~numEvents = ~calcNumEvents.()/*.(pt, i)*/;  // bah, tired of passing everything as args
+		DebugPbind(
+			\mode, ~modePat.()/*.(pt, i)*/,
+			\x, ~xPat.()/*.(pt, i)*/,
+			\y, ~yPat.()/*.(pt, i)*/,
+			\freq, ~freq.()/*.(pt, i)*/,
+			\mod_ratio, ~mod_ratio.()/*.(pt, i)*/,
+			\mod_lev, ~mod_lev.()/*.(pt, i)*/,
+			\quantize, ~quantize.()/*.(pt, i)*/,
+			\delta, ~delta.()/*.(pt, i)*/.collect { |dur, ev|
+				var	rounded = min(~pquant, dur.round(~pquant)) - (thisThread.beats % ~pquant);
+				if(rounded < ~pquant) { rounded = rounded + ~pquant };
+				dur.blend(rounded, ev[\quantize])
+			},
+			\length, ~length.()/*.(pt, i)*/,
+			\gate, ~gate.()/*.(pt, i)*/,
+			\pan, ~pan.()/*.(pt, i)*/
+		)/*.collect { |ev|
+			#[x, y, freq].collect(ev[_]).debug("x, y, freq");
+			ev
+		}*/
+	};
 
 BP(\arp).magDecay = 0.63095734448019;
 BP(\arp).currentMag = 0;
@@ -504,3 +527,24 @@ BP(\arp).chords;
 BP(\arp).changeChords;
 
 BP(\arp).quantize = Pfunc({ ~model.centroid.y * 0.5 + 0.5 });
+
+BP(\arp).delta = { Pexprand(0.2, 0.9, ~numEvents) };
+BP(\arp).pquant
+
+TempoClock.default.gui;
+
+BP(\arp).maxPlayers = 4;
+BP(\arp).players.size
+
+BP(\arp).preparePlay = {
+		~angleDiffs = 0 ! 5;
+		~angleI = 0;
+		~prevAngle = 0;
+		~changeChordModeStream ?? { ~makeStreamForKey.(\changeChordMode) };
+		if(~chords.isNil) { ~changeChords.() };
+		~resp = SimpleController(~model).put(\allPtsReceived, e { ~respond.() });
+	};
+
+BP(\arp).v[\quantize].postcs
+
+BP(\arp).useGui = { |vpi| ~syncMax => VP(vpi) };
