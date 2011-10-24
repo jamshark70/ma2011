@@ -317,7 +317,7 @@ PR(\streamTrack).chuck(BP(\arp), nil, (
 	rhoScale: 7.5,  // assuming anglePoint.rho peaking about 0.25
 	restEvent: (freq: #[], delta: 1, length: 1, gate: 1),
 	userprep: {
-		~syncMax = GenericGlobalControl(\maxsync, nil, 1);
+		~syncMax = GenericGlobalControl(\syncMax, nil, 1);
 	},
 	userfree: { ~syncMax.free },
 	useGui: { |vpi| ~syncMax => VP(vpi) },
@@ -404,6 +404,8 @@ PR(\streamTrack).chuck(BP(\arp), nil, (
 	modePat: { BPStream(\mode) },
 	mod_ratio: 1, // { rrand(1, 4) },
 	mod_lev: Pfunc({ ~model.centroid.y.linlin(-1, 1, 1.6, 0.15) }),
+	// maybe exponentialize
+	car_buf: Pfunc({ (~model.centroid.y * (-0.5) + 0.5) * 7.9 + VC(\pl).env.cb.first.bufnum }),
 
 	qcurve: -4,
 
@@ -429,7 +431,8 @@ PR(\streamTrack).chuck(BP(\arp), nil, (
 			},
 			\length, ~length.()/*.(pt, i)*/,
 			\gate, ~gate.()/*.(pt, i)*/,
-			\pan, ~pan.()/*.(pt, i)*/
+			\pan, ~pan.()/*.(pt, i)*/,
+			\car_buf, ~car_buf.()
 		)
 	},
 
@@ -548,3 +551,8 @@ BP(\arp).preparePlay = {
 BP(\arp).v[\quantize].postcs
 
 BP(\arp).useGui = { |vpi| ~syncMax => VP(vpi) };
+
+
+VC(\pl).v.trace
+
+VC(\pl).env.cb[0].plotWavetable

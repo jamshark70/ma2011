@@ -68,16 +68,32 @@ v = WrapInstr("osc2.fm2carpan").miditest(0, [
 (
 make: { |name|
 	var out;
-	~cb = Buffer.alloc(s, 2048, 1);
+	~cb = Buffer.allocConsecutive(8, s, 2048, 1);
 	~mb = Buffer.alloc(s, 2048, 1);
 
-	~cb.sine1(#[1, 0, 0.6]);
+	// ~cb.sine1(#[1, 0, 0.6]);
+	fork {
+		var cond = Condition.new;
+		~cb.do { |buf, i|
+			// god DAMN it I hate using temp diskfiles
+			// but it isn't safe to block the thread when using sendCollection
+			// fuck fuck fuck fuck fuck
+			buf.loadCollection(
+				Signal.fill(buf.numFrames div: 2, { (i / ~cb.size).rand2 }).asWavetable,
+				action: { cond.unhang });
+			cond.hang;  // ensure signal is sent before adding sine content
+			buf.sine1(#[1, 0, 0.6] * (1 - (i / ~cb.size)).debug("sinemul"), clearFirst: false);
+			s.sync;
+		};
+		~collIndex.debug("buffers ready");
+	};
 	~mb.sine1(#[1]);
 
 	~target = MixerChannel(name, s, 2, 2, level: -14.dbamp /*, completionFunc: {} */);
 
 	out = Voicer(25, WrapInstr("osc2.fm2carpan"), [
-		car_buf: ~cb, mod_buf: ~mb,
+		car_buf: ~cb.first.bufnum,  // allow modulation
+		mod_buf: ~mb,
 		car_env: Env(#[0, 1, 0.4, 0, 0], #[0.01, 0.15, 2.5, 0.08], -4, releaseNode: 3),
 		mod_env: `{ |gate, mod_vs|
 			Env([1, gate.madd(mod_vs, 1), 1], [0.01, gate.madd(0.8, 0.4)], -4)
