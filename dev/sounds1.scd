@@ -32,14 +32,22 @@ m => MCG(0);
 WrapInstr("osc2.fm2car_v", { arg freq, gate, car_env, mod_env, mod_lev, mod_ratio, detune, car_detune,
 	car_buf, mod_buf, car_vs, mod_vs, basefreq, keyscale;
 	var sig, mod, car_amp, mod_amp;
+	// so this here is an ass-ugly workaround for the fact that VOsc chokes on FM
+	var blendOsc = { |buf1, buf2, args, frac = 0.5|
+		var	osc1 = Osc.ar(buf1, *args),
+		osc2 = Osc.ar(buf2, *args);
+		// linear or equal-power... ehhhh... equal-power it is
+		XFade2.ar(osc1, osc2, frac.madd(2, -1))
+		// (osc2 - osc1) * frac + osc1
+	};
 	car_amp = Latch.kr(Sensitivity.kr(1, gate, car_vs), gate);
 	mod_amp = Latch.kr(Sensitivity.kr(1, gate, mod_vs), gate)
 	* EnvGen.kr(mod_env, gate);
 	mod_lev = mod_lev * basefreq / ((keyscale * freq) + (basefreq * (1 - keyscale)));
 	mod = Osc.ar(mod_buf, freq.madd(mod_ratio * [1, car_detune], detune * [1, -1]), 0, mod_amp * mod_lev);
 	freq = freq * [1, car_detune];
-	sig = Mix(VOsc.ar(car_buf, freq + (mod * freq), 0, car_amp))
-	* EnvGen.kr(car_env, gate, doneAction:2)
+	sig = Mix(blendOsc.(car_buf, car_buf + 1, freq + (mod * freq), 0))
+		* car_amp * EnvGen.kr(car_env, gate, doneAction:2)
 }, [\freq, \amp, EnvSpec(Env.adsr(0.01, 1, 1, 0.05)), EnvSpec(Env.adsr(0.01, 1, 1, 1)), [0.01, 300, \exponential], [1, 12, \linear, 0, 1], [-5, 5, \linear, 0, 0], \mydetune, \mybuf, \mybuf, nil, nil, \freq, [0.001, 1.0, \exp]]);
 
 WrapInstr("osc2.fm2carpan", { |pan = 0, gate = 1, mod_env, mod_vs = 0|
@@ -89,12 +97,14 @@ make: { |name|
 	fork {
 		var cond = Condition.new;
 		~cb.do { |buf, i|
-			// god DAMN it I hate using temp diskfiles
-			// but it isn't safe to block the thread when using sendCollection
-			// fuck fuck fuck fuck fuck
-			buf.loadCollection(
-				Signal.fill(buf.numFrames div: 2, { (i / ~cb.size).rand2 }).asWavetable,
-				action: { cond.unhang });
+			// Department of Redundancy Department:
+			// if I block this thread by cond.hang, it also blocks sendCollection
+			// grrrrrrr...
+			fork {
+				buf.sendCollection(
+					Signal.fill(buf.numFrames div: 2, { (i / ~cb.size).rand2 }).asWavetable,
+					action: { cond.unhang });
+			};
 			cond.hang;  // ensure signal is sent before adding sine content
 			buf.sine1(#[1, 0, 0.6] * (1 - (i / ~cb.size)).debug("sinemul"), clearFirst: false);
 			s.sync;

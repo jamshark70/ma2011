@@ -214,6 +214,7 @@ if(VC.exists(\pl)) { VC(\pl) => BP(\st) };
 
 BP(\st) => MT(1);
 BP(\st) => VP(0);
+BP(\st).chProc = BP(\cm);
 
 BP(\st).stop;
 BP(\st).play;
@@ -465,3 +466,64 @@ BP(\arp) => MT(1);
 BP(\arp).play;
 BP(\arp).stop;
 
+
+(
+PR(\abstractProcess).clone({
+	~event = (type: \rest);
+
+	~chords = [
+		#[21, 25, 28, 31, 33],
+		#[28, 31, 32, 36, 40],
+		#[29, 33, 34, 37, 42],
+		#[31, 36, 37, 40, 46],
+		#[34.5, 38, 43, 44, 47]
+	].flop;
+
+	~changeChordMode = \patRejectLastN.eval(
+		Pxrand(#[a, as, b, c, cs, d, ds, e, f, fs, g, gs], inf), 6
+	);
+	~chordChangeBeats = Pwhite(8, 15, inf);
+
+	~makeBlend = Plazy({ Env(#[0, 1], [rrand(0.4, 0.8)]) });
+	~xIntervals = Pwhite(3, 6, inf);
+	~yIntervals = Pwhite(1, 4, inf);
+
+	~changeChords = { |inevent|
+		var	size = ~model.tryPerform(\dim) ? 5;
+		~oldMode = ~mode;
+		~mode = ~changeChordModeStream.next(inevent);
+		~oldChords = ~chords;
+		~chords = Pseries(21, ~xIntervals, size).collect { |bass|
+			Pseries(bass, ~yIntervals, size).asStream.all
+		}.asStream.all;
+		~oldChords ?? { ~oldChords = ~chords };
+		~blend = ~makeBlend.();
+	};
+
+	~asPattern = {
+		~changeChordModeStream ?? { ~makeStreamForKey.(\changeChordMode) };
+		~chordChangeBeatsStream ?? { ~makeStreamForKey.(\chordChangeBeats) };
+		Prout({ |inevent|
+			var beats;
+			loop {
+				~changeChords.(inevent);
+				beats = ~chordChangeBeatsStream.next(inevent);
+				beats.do {
+					inevent = 1.yield;
+				};
+				if(beats.frac != 0) {
+					inevent = beats.frac.yield;
+				};
+			};
+		})
+	};
+}) => PR(\chordsAndModes);
+)
+
+BP(\cm).free;
+PR(\chordsAndModes) => BP(\cm);
+0.25 => BP(\cm);
+
+BP(\st).chProc = BP(\cm);
+
+BP(\st).listVars;
