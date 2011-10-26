@@ -31,11 +31,25 @@ do((0..11)) { |i|
 
 
 { |bool = false|
-	BP(\mg).win.alwaysOnTop = bool;
-	"wmctrl -r \"GridFlow SDL\" -b %,above"
-	.format(if(bool) { "add" } { "remove" })
-	.unixCmd;
+	try {
+		(~guiProc ?? { BP(\mg) }).win.alwaysOnTop = bool;
+		"wmctrl -r \"GridFlow SDL\" -b %,above"
+		.format(if(bool) { "add" } { "remove" })
+		.unixCmd;
+	} { |error|
+		"Window %top failed.".format(if(bool) { "" } { "un-" }).warn;
+		error.errorString.postln;
+	};
 } => Func(\alwaysTop);
+
+Proto({
+	~quant = 0;
+	~fronted = false;
+	~doAction = {
+		~fronted = ~fronted.not;
+		\alwaysTop.eval(~fronted);
+	};
+}) => PR(\windowTop);
 
 /*
 \alwaysTop.eval(true);

@@ -38,6 +38,11 @@ NotificationCenter.register(\chucklibGui, \ready, 'go.scd', e {
 	BP(\arp).free;
 	Fact(\arpegBP).chuck(BP(\arp), nil, (model: BP(\ml), chProc: BP(\cm)));
 	VC(\pl) => BP(\arp);
+
+
+	BP(\wtop).free;
+	PR(\windowTop).chuck(BP(\wtop), nil, (guiProc: BP(\mg)));
+	BP(\wtop) =>.72 MT(1);
 });
 )
 
