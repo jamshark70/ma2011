@@ -30,6 +30,19 @@ do((0..11)) { |i|
 };
 
 
+{ |bool = false|
+	BP(\mg).win.alwaysOnTop = bool;
+	"wmctrl -r \"GridFlow SDL\" -b %,above"
+	.format(if(bool) { "add" } { "remove" })
+	.unixCmd;
+} => Func(\alwaysTop);
+
+/*
+\alwaysTop.eval(true);
+\alwaysTop.eval(false);
+*/
+
+
 // UNBELIEVABLE what it took to get this working
 WrapInstr("osc2.fm2car_v", { arg freq, gate, car_env, mod_env, mod_lev, mod_ratio, detune, car_detune,
 	car_buf, mod_buf, car_vs, mod_vs, basefreq, keyscale;
@@ -264,7 +277,10 @@ make: { |name|
 		oldFreq: { |pt, i|
 			(~chProc.oldChords ?? { ~chProc.chords })[4 - (i % 5)][i div: 5]
 		},
-		delta: { Pexprand(0.1, 0.6, inf) },
+		// this is KICK-ASS responsive! stop moving and it all slows down
+		delta: {
+			Pexprand(0.1, 0.6, inf) * Pfunc({ ~model.normmag.linlin(0.0, 0.5, 8, 1, \minmax) })
+		},
 		quantize: Pfunc({ ~model.centroid.y * 0.5 + 0.5 }),
 		length: Pkey(\delta) * Pexprand(0.8, 1.7, inf),
 		gate: { |pt, i| Pgeom.fromEndpoints(0.8, 0.01, ~numEvents) },
@@ -470,6 +486,7 @@ PR(\abstractProcess).clone({
 	);
 	~chordChangeBeats = Pwhite(8, 15, inf);
 
+	~blendTime = Pwhite(1.2, 2.2, inf);
 	~makeBlend = Plazy({ Env(#[0, 1], [rrand(0.4, 0.8)]) });
 	~xIntervals = Pwhite(3, 6, inf);
 	~yIntervals = Pwhite(1, 4, inf);
@@ -489,6 +506,7 @@ PR(\abstractProcess).clone({
 	~asPattern = {
 		~changeChordModeStream ?? { ~makeStreamForKey.(\changeChordMode) };
 		~chordChangeBeatsStream ?? { ~makeStreamForKey.(\chordChangeBeats) };
+		~blendTimeStream ?? { ~makeStreamForKey.(\blendTime) };
 		Prout({ |inevent|
 			var beats;
 			loop {
