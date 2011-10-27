@@ -1,0 +1,136 @@
+~jamesClient = NetAddr("127.0.0.1", 57120);
+
+
+~flash = { |text, time(4)|
+	topEnvironment[\jamesClient].tryPerform(\sendMsg, '/mungo', text, time)
+};
+
+~flash.("xyz");
+
+~flash.("国际电子音乐大师班系列");
+
+
+
+s.boot;
+
+d = ".....";  // fill with the real path to the main dir
+
+b = Buffer.readChannel(s, d +/+ "samples/starbucks2.aiff", channels: #[0]);
+
+(d +/+ "synthdefs.scd").load;
+
+~limiter = Synth(\masterLimiter, nil, s.asTarget, \addAfter);
+
+
+~keys = Synth(\keys, nil, s.asTarget, \addBefore);
+
+(
+a = nil;
+~resp1.remove;
+~resp1 = OSCresponderNode(s.addr, '/keystroke', { a.tryPerform(\set, \t_trig, 1) }).add;
+
+a = Synth(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
+a.free; a = nil;
+)
+
+
+(
+~keyResp = PbindProxy(
+	\instrument, \aps,
+	\bufnum, b,
+	\fwdback, Prand(#[-1, 1], inf),
+	\speed, Pexprand(0.125, 8.0, inf),
+	\rate, Pkey(\speed) * Pkey(\fwdback),
+	\rawStart, Pwhite(0, (b.numFrames * 0.8).asInteger, inf),
+	\start, Pif(Pkey(\rate) >= 0, Pkey(\rawStart), b.numFrames - Pkey(\rawStart)),
+	\t_trig, 1,
+	\dcyMul, Pwhite(0.2, 1.0, inf),
+	\apdecay, Pexprand(0.2, 3.5, inf),
+	\topaplevel, Pwhite(0.45, 1.0, inf),
+	\totaldur, Pwhite(0.7, 5.0, inf),
+	\release, Pwhite(0.1, 2.5, inf),
+	\sustain, max(0.1, Pkey(\totaldur) - Pkey(\release)),
+	\latency, 0.05
+);
+
+~keyRespStream = ~keyResp.asStream;
+
+~resp2.remove;
+~resp2 = OSCresponderNode(s.addr, '/keystroke', { ~keyRespStream.next(()).play }).add;
+)
+
+~keyResp.set(\totaldur, Pwhite(0.2, 0.5, inf));
+~keyResp.set(\release, 0.1);
+
+~keyResp.set(\speed, 1);
+
+~keyResp.set(\instrument, \combs);
+
+~keyResp.set(\instrument, Pwrand(#[aps, combs], #[0.8, 0.2], inf));
+
+
+a.release(12); OSCpathResponder(s.addr, ['/n_end', a.nodeID], { ~resp1.remove; a = nil }).removeWhenDone.add;
+
+~resp2.remove;  // to stop responding to keystrokes
+
+
+
+(
+~repeaterNode = PbindProxy(
+	\instrument, Pwrand(#[aps, combs], #[0.6, 0.4], inf),
+	\drylev, 0,
+	\bufnum, b,
+	\fwdback, Prand(#[-1, 1], inf),
+	\speed, Pexprand(1, 1.6, inf),
+	\rate, Pkey(\speed) * Pkey(\fwdback),
+	\rawStart, Pwhite(0, (b.numFrames * 0.8).asInteger, inf),
+	\start, Pif(Pkey(\rate) >= 0, Pkey(\rawStart), b.numFrames - Pkey(\rawStart)),
+	\t_trig, 1,
+	\dcyMul, Pwhite(0.01, 0.06, inf),
+	\apdecay, Pexprand(0.2, 3.5, inf),
+	\topaplevel, Pwhite(0.05, 0.15, inf),
+	\totaldur, Pwhite(3.0, 6.0, inf),
+	\release, Pwhite(2.5, 5.0, inf),
+	\sustain, max(0.1, Pkey(\totaldur) - Pkey(\release)),
+	\latency, 0.04,
+	\balance, Pwhite(-1.0, 1.0, inf),
+	\amp, 1
+);
+
+~repeaterNodeStream = ~repeaterNode.asStream;
+
+~nodeLimit = 30;
+~nodes = IdentityDictionary.new;
+~endWatcher.remove;
+~endWatcher = OSCresponderNode(s.addr, '/n_end', e { |t, r, m|
+	if(~nodes[m[1]].notNil) {
+		~nodes[m[1]].stop;  // just in case...
+		~nodes.removeAt(m[1]);
+	};
+}).add;
+
+f = {
+	var node, player;
+	if(~nodes.size < ~nodeLimit) {
+		node = ~repeaterNodeStream.next(()).play;
+		thisThread.clock.sched(0, {
+			player = Pfindur(node.totaldur - 0.12, Pbind(
+				\type, \set,
+				\id, node.id,
+				\args, #[t_trig],
+				\t_trig, 1,
+				\delta, rrand(0.12, 0.26),
+				\latency, 0.05
+			)).play;
+			~nodes[node.id[0]] = player;
+		});
+		node
+	};
+};
+)
+
+
+~resp3.remove;
+~resp3 = OSCresponderNode(s.addr, '/keystroke', { f.value }).add;
+
+
