@@ -57,6 +57,34 @@ Proto({
 */
 
 
+{ |text, time(4)|
+	var quote;
+	text = text.asString;
+	// stupid fucking shell doesn't handle escaped characters properly
+	quote = if(text.includes($')) {
+		text = text.reject(_ == $");
+		quote = $";
+	} {
+		text = text.reject(_ == $');
+		quote = $';
+	};
+	"notify-send -t % %%%"
+	.format((time*1000).asInteger, quote, text, quote)
+	.unixCmd(nil, false);
+	text
+} => Func(\flash);
+
+{ |text, time(4)|
+	\flash.eval(text, time);
+	\mungo.eval(text);
+} => Func(\flash2);
+
+{ |text|
+	topEnvironment[\mungoClient].tryPerform(\sendMsg, \hello, text);
+	text
+} => Func(\mungo);
+
+
 // UNBELIEVABLE what it took to get this working
 WrapInstr("osc2.fm2car_v", { arg freq, gate, car_env, mod_env, mod_lev, mod_ratio, detune, car_detune,
 	car_buf, mod_buf, car_vs, mod_vs, basefreq, keyscale;

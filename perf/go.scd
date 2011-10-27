@@ -1,3 +1,22 @@
+// this is fiddly so I won't type it by hand
+
+~mungo = "192.168.3.61";
+
+~mungoClient = NetAddr(~mungo, 57120);
+~mungoServer = NetAddr(~mungo, 57110);
+
+\flash2.eval("you there?");
+
+~receiver.free;
+~receiver = OSCFunc({ |msg| \flash.eval(msg[1], msg[2]) }, '/mungo');
+
+
+
+
+
+
+// this is even more fiddly!
+
 (
 var dir;
 
