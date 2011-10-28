@@ -206,3 +206,48 @@ PeakMonitor(~rvbchan)
 
 ~rvbchan.level = 2.sqrt;
 
+
+SynthDef("rvbxfer", {
+	arg inbus, outbus, level = 0.1;
+	var sig = In.ar(inbus, 2);
+	Out.ar(outbus, sig * level);
+	Out.ar(0, sig);
+}).send(s);
+
+SynthDef(\reverb, { |in, out, earlyDecay = 0.08, decay = 2, earlyAmp = 0.2, tailAmp = 1|
+	var sig = In.ar(in, 2),
+	early = LeakDC.ar(
+		sig.collect { |chan|
+			CombL.ar(chan, 0.03, Array.fill(3, { Rand(0.01, 0.03) }), earlyDecay).sum
+		}
+	),
+	tail = sig;
+	4.do {
+		tail = tail + AllpassL.ar(tail, 0.08, Rand(0.03, 0.08), decay);
+	};
+	Out.ar(out, (early * earlyAmp) + (tail * tailAmp));
+}).add;
+
+~rvbus = Bus.audio(s, 2);
+
+~rvb.free;
+~rvb = Synth(\reverb, [in: ~rvbus, out: 0], s.asTarget, \addAfter);
+
+a = {
+	var trig = Impulse.kr(8), eg = Decay2.kr(trig, 0.01, 0.09);
+	Pan2.ar(SinOsc.ar(TExpRand.kr(200, 800, trig), 0, 0.7 * eg), SinOsc.kr(0.1))
+}.play(outbus: ~rvbus);
+
+a.free;
+
+~rvb.trace
+
+~srcbus = Bus.audio(s, 2);
+
+~xfer = Synth(\rvbxfer, [inbus: ~srcbus, outbus: ~rvbus, level: 1], ~rvb, \addBefore);
+
+~xfer.set(\level, 0.2);
+
+~xfer.trace
+
+PeakMonitor(~rvbus)

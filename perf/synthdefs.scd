@@ -1,5 +1,7 @@
 ~addSel = if(SynthDef.findRespondingMethodFor(\add).notNil) { \add } { \memStore };
 
+~ebuf = Buffer.sendCollection(s, Env.perc(0.01, 0.99).asSignal(512));
+
 SynthDef(\keys, { |gateThresh = 0.1995 /* -14.dbamp */, thresh = 0.15|
 	var	in = CompanderD.ar(SoundIn.ar(0), gateThresh, slopeBelow: 10, slopeAbove: 1),
 	fft = FFT(LocalBuf(512, 1), in),
@@ -23,6 +25,29 @@ SynthDef(\expmap, { |inbus, outbus, inMin, inMax, outMin, outMax|
 		In.kr(inbus, 1).linexp(inMin, inMax, outMin, outMax)
 	);
 }).perform(~addSel);
+
+
+SynthDef("rvbxfer", {
+	arg inbus, outbus, level = 0.1;
+	var sig = In.ar(inbus, 2);
+	Out.ar(outbus, sig * level);
+	Out.ar(0, sig);
+}).send(s);
+
+SynthDef(\reverb, { |in, out, earlyDecay = 0.08, decay = 2, earlyAmp = 0.2, tailAmp = 1|
+	var sig = In.ar(in, 2),
+	early = LeakDC.ar(
+		sig.collect { |chan|
+			CombL.ar(chan, 0.03, Array.fill(3, { Rand(0.01, 0.03) }), earlyDecay).sum
+		}
+	),
+	tail = sig;
+	4.do {
+		tail = tail + AllpassL.ar(tail, 0.08, Rand(0.03, 0.08), decay);
+	};
+	Out.ar(out, (early * earlyAmp) + (tail * tailAmp));
+}).perform(~addSel);
+
 
 
 SynthDef(\aps, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1, release = 0.5,
@@ -105,7 +130,7 @@ SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1
 
 
 ~mappedData = IdentityDictionary.new;
-~ctlNums = (x: 0, y: 1, theta: 2, rho: 3, mag: 4, angle: 2, radius: 3, rad: 3);
+~ctlNums = (x: 0, y: 1, theta: 2, rho: 3, mag: 4, angle: 2, radius: 3, rad: 3, mx: 5, mouseX: 5, my: 6, mouseY: 6);
 ~map = inEnvir({ |synth, name, ctlName, inMin, inMax, outMin, outMax, curve(\lin), source(~lagbus)|
 	var synthmaps, mapping;
 	~unmap.(synth, name);

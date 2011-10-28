@@ -10,7 +10,7 @@ do((0..11)) { |i|
 		(~guiProc ?? { BP(\mg) }).win.alwaysOnTop = bool;
 		"wmctrl -r \"GridFlow SDL\" -b %,above"
 		.format(if(bool) { "add" } { "remove" })
-		.unixCmd;
+		.unixCmd(postOutput: false);
 	} { |error|
 		"Window %top failed.".format(if(bool) { "" } { "un-" }).warn;
 		error.errorString.postln;
@@ -490,6 +490,8 @@ make: { |name|
 PR(\abstractProcess).clone({
 	~event = (type: \rest);
 
+	~prep = { ~sendOSC.() };
+
 	~chords = [
 		#[21, 25, 28, 31, 33],
 		#[28, 31, 32, 36, 40],
@@ -497,6 +499,7 @@ PR(\abstractProcess).clone({
 		#[31, 36, 37, 40, 46],
 		#[34.5, 38, 43, 44, 47]
 	].flop;
+	~mode = \d;
 
 	~changeChordMode = \patRejectLastN.eval(
 		Pxrand(#[a, as, b, c, cs, d, ds, e, f, fs, g, gs], inf), 6
@@ -518,6 +521,12 @@ PR(\abstractProcess).clone({
 		}.asStream.all;
 		~oldChords ?? { ~oldChords = ~chords };
 		~blend = ~makeBlend.();
+		~sendOSC.();
+	};
+
+	~sendOSC = {
+		topEnvironment[\mungoClient].tryPerform(\sendMsg,
+			'/newChord', Mode(~mode).v.root, *(~chords.flat));
 	};
 
 	~asPattern = {

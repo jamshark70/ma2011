@@ -143,6 +143,31 @@ a.free;
 a.trace;
 
 
+
+// simple buffer player
+SynthDef(\normbufplay, { |bufnum, out, rate = 1, start = 0|
+	Out.ar(out, Normalizer.ar(PlayBuf.ar(1, bufnum, rate: rate, startPos: start, loop: 1)))
+}).add;
+
+~starbucksbus = Bus.audio(s, 1);
+
+~bufplay = Synth(\normbufplay, [out: ~starbucksbus, bufnum: b], s.asTarget, \addBefore);
+
+a = m.play({ |thresh = 0.09, minTrigTime = 0.05|
+	var afreq = 400, rate = 1, n = 10,
+	analysis = BPF.ar(
+		In.ar(~starbucksbus, 1),
+		afreq * rate * Array.fill(n, { |i| ((i+1) * ((1+sqrt(5)) / 2)) + LFNoise1.kr(Rand(1.6, 6.4)).exprange(0.95, 0.95.reciprocal) }),
+		0.01  // Q ~= 100
+	),
+	trigs = A2K.kr(Trig1.ar(analysis > (thresh / (1..n)), minTrigTime)),
+	// onetrig = trigs.sum,
+	gfreqs = NamedControl.kr(\gfreqs, 200 * (1..n)),
+
+}, []);
+
+a.free;
+
 g = GenericGlobalControl(\thresh, nil, 0.8, [0, 1]);
 g => VP(0);
 
@@ -178,43 +203,61 @@ a.trace
 
 SynthDef(\fmg, { |afreq = 400, thresh = 0.8, rate = 1, minTrigTime = 0.1, gate = 1, out,
 	graindur = 0.12, maxratio = 5, maxrand = 0.05, modindexlo = 0.3, modindexhi = 1.2,
-	panwidth = 1, pancenter = 0, envbuf = -1|
+	gAmp = 0.2,
+	panwidth = 1, pancenter = 0, envbuf = -1, sbus,
+	apdecay = 0.1, aEGstretch = 1, aEGsens = 1, xfade = 0|
 	var n = 10,
-	sig = Normalizer.ar(PlayBuf.ar(1, b, rate: rate, loop: 1)),
+	sig = In.ar(sbus, 1),
 	analysis = BPF.ar(
 		sig,
 		afreq * rate * Array.fill(n, { |i| ((i+1) * ((1+sqrt(5)) / 2)) + LFNoise1.kr(Rand(1.6, 6.4)).exprange(0.95, 0.95.reciprocal) }),
 		0.03  // Q ~= 33
 	),
-	trigs = A2K.kr(Trig1.ar(analysis > (thresh / (1..n)), minTrigTime)),
+	trigs = A2K.kr(Trig1.ar(analysis > (thresh / (1..n)), minTrigTime * Array.fill(n, { Rand(0.9, 0.111) }))),
 	onetrig = trigs.sum,
 	gfreqs = NamedControl.kr(\gfreqs, 200 * (1..n)),
-	eg = EnvGen.kr(Env.asr(3, 1, 6, #[4, -4]), gate, doneAction: 2);
+	eg = EnvGen.kr(Env.asr(3, 1, 6, #[4, -4]), gate, doneAction: 2),
+	grains = GrainFM.ar(2, trigs, dur: graindur,
+		carfreq: gfreqs,
+		modfreq: gfreqs *
+		(TIRand.kr(1, maxratio, onetrig) + TRand.kr(maxrand.neg, maxrand, onetrig)),
+		index: TRand.kr(modindexlo, modindexhi, onetrig),
+		pan: TRand.kr((pancenter - panwidth).clip(-1, 1),
+			(pancenter + panwidth).clip(-1, 1), trigs),
+		envbufnum: envbuf
+	).sum,
+	analysisEGs = (EnvGen.kr(Env.perc(0.01, graindur * aEGstretch), trigs) - 1) * aEGsens + 1;
+	analysis = Pan2.ar(analysis, (-1.0, 2/(n-1) - 1 .. 1.0).scramble, analysisEGs).sum;
+	analysis = analysis + AllpassL.ar(analysis, 0.05,
+		LFDNoise1.kr(LFNoise1.kr(0.5).range(0.3, 4), 0.02, 0.03),
+		apdecay
+	);
 	Out.ar(out,
-		GrainFM.ar(2, trigs, dur: graindur,
-			carfreq: gfreqs,
-			modfreq: gfreqs *
-				(TIRand.kr(1, maxratio, onetrig) + TRand.kr(maxrand.neg, maxrand, onetrig)),
-			index: TRand.kr(modindexlo, modindexhi, onetrig),
-			pan: TRand.kr((pancenter - panwidth).clip(-1, 1),
-				(pancenter + panwidth).clip(-1, 1), trigs),
-			envbufnum: envbuf
-		).sum * eg
+		XFade2.ar(analysis, grains * gAmp, xfade * 2 - 1, eg)
 	)
 }).add;
+
 
 c = Bus.control(s, 10);
 c.setn(38.midicps * (1..10));
 
 n = MCG(7).v.mixer;
 
-a = n.play(\fmg, [thresh: 0.09, gfreqs: c.numChannels.collect { |i| ("c" ++ (c.index + i)).asSymbol }, envbuf: ~ebuf]);
+a = n.play(\fmg, [thresh: 0.09, gfreqs: c.numChannels.collect { |i| ("c" ++ (c.index + i)).asSymbol }, envbuf: ~ebuf, sbus: ~starbucksbus, out: ~srcbus]);
+
+a.free;
+a = Synth(\fmg, [thresh: 0.09, gfreqs: c.numChannels.collect { |i| ("c" ++ (c.index + i)).asSymbol }, envbuf: ~ebuf, sbus: ~starbucksbus, out: ~srcbus]);
 
 a.trace;
 
 a.release;
 
-// needs reverb!!!
+z = ~map.(a, \mag, \thresh, 0, 0.4, 0.14, 0.01, \lin);
+~map.(a, \x, \xfade, -0.7, 0.7, 0, 1);
+~map.(a, \y, \aEGsens, -0.6, 0.6, 0, 1);
+
+a.trace;
+
 // map parameters on, especially to make this very quiet, unobtrusive
 
 (instrument: \ctlPoint, outbus: c.index + (0..9), time: 12, curve: 0, value: (Pseries(-7, Pwhite(1, 4, inf), 10).asStream.all.degreeToKey(#[0, 2, 4, 5, 7, 9, 11], 12) + 62).midicps).play;
@@ -230,3 +273,74 @@ z = ~map.(a, \mag, \thresh, 0, 0.4, 0.14, 0.01, \lin);
 
 a.release;
 
+
+
+
+// melody
+
+SynthDef(\melody, { |freq = 440, gate = 1, mod_ratio = 2, mod_lev = 1, car_detune = 1.003, car_amp = 0.1, out, pan, freqlag = 0.15|
+	var ampenv = EnvGen.kr(Env.adsr(0.1, 0.4, 0.5, 0.15), gate, doneAction: 2),
+	modenv = EnvGen.kr(Env.adsr(0.08, 0.07, 0.5, 0.25)),
+	lfreq = Lag.kr(freq, freqlag),
+	sig = [1, car_detune].collect({ |fmul|
+		var f = lfreq * fmul,
+		mod = SinOsc.ar(f * mod_ratio, 0) * mod_lev * modenv;
+		SinOsc.ar(f + (f * mod), 0)
+	}).sum;
+	Out.ar(out, Pan2.ar(sig, pan, car_amp * ampenv));
+}).add;
+
+(instrument: \melody, mod_lev: 3, sustain: 2, car_detune: 1.006).play;
+
+(
+~mousexy2lang.free;
+~mousexy2lang = {
+	var coord = [MouseX.kr(0, 1, 0, 0.1), MouseY.kr(0, 1, 0, 0.1)];
+	SendReply.kr(Impulse.kr(10), '/mousexy', coord);
+}.play;
+
+~mouseResp.remove;
+~mouseResp = OSCresponder(s.addr, '/mousexy', { |t, r, msg|
+	~mousex = msg[3];
+	~mousey = msg[4];
+}).add;
+)
+
+~intervalProbs = #[6, 5, 2, 1].normalizeSum;
+~melodyRange = #[-4, 14];
+
+~melody = PmonoArtic(\melody,
+	#[degree, jumped], Prout({ |inval|
+		var deg = rrand(1, 6), nextDeg, root, adjust, jumped;
+		loop {
+			root = topEnvironment[\root] ? 2;
+			adjust = (root-2).keyToDegree(#[0, 2, 4, 5, 7, 9, 11], 12).trunc;
+			nextDeg = deg + (
+				#[1, 2, 3, 4].wchoose(~intervalProbs)
+				* if(coin(~mousex)) { 1 } { -1 }
+			);
+			if(jumped = deg.inclusivelyBetween(*(~melodyRange)).not) {
+				nextDeg = ~melodyRange[0].rrand(~melodyRange[1]);
+			};
+			inval = [(deg - adjust), jumped].yield;
+			deg = nextDeg;
+		}
+	}),
+	\root, Pfunc({ topEnvironment[\root] ? 2 }),
+	\dur, Pwhite(1, 4, inf) * Pfunc({ ~mousey.linlin(0, 1, 0.2, 0.5) }),
+	\legato, Pif(Pbinop('or', Pkey(\jumped), Pfunc({ 0.07.coin })), 0.9, 1.01),
+	\mod_lev, 3,
+	\car_detune, 1.006
+).play;
+
+~melody.stop;
+
+
+~mousexy2lang.free; ~mouseResp.remove;
+
+s.sendMsg(\n_free, 1005);
+
+BP(\cm).play;
+BP(\cm).stop;
+
+Pbinop('or', Pfunc({ 0.07.coin }), false).asStream.nextN(20);

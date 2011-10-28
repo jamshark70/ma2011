@@ -1,4 +1,4 @@
-~jamesClient = NetAddr("127.0.0.1", 57120);
+~jamesClient = NetAddr("127.0.0.1", 57120);  // change this IP address
 
 
 ~flash = { |text, time(4)|
@@ -9,17 +9,40 @@
 
 ~flash.("国际电子音乐大师班系列");
 
+(
+~modeResp = OSCresponder(nil, '/newChord', { |t, r, msg|
+	~root = msg[1];
+	~chords = msg[2..].clump(5);
+}).add;
+)
 
 
 s.boot;
 
-d = ".....";  // fill with the real path to the main dir
+~dir = d = ".....";  // fill with the real path to the main dir
 
 b = Buffer.readChannel(s, d +/+ "samples/starbucks2.aiff", channels: #[0]);
 
 (d +/+ "synthdefs.scd").load;
 
+(
+~rawbus = Bus.control(s, 7);
+~lagbus = Bus.control(s, 7);
+~lagger = Synth(\lags5, [inbus: ~rawbus, outbus: ~lagbus], target: s.asTarget, addAction: \addBefore);
+~mouseToBus = {
+	Out.kr([~rawbus, ~lagbus], [MouseX.kr(0, 1, 0, 0.1), MouseY.kr(0, 1, 0, 0.1)]);
+}.play;
+
 ~limiter = Synth(\masterLimiter, nil, s.asTarget, \addAfter);
+
+~rvbus = Bus.audio(s, 2);
+~rvb.free;
+~rvb = Synth(\reverb, [in: ~rvbus, out: 0], s.asTarget, \addAfter);
+
+~srcbus = Bus.audio(s, 2);
+
+~xfer = Synth(\rvbxfer, [inbus: ~srcbus, outbus: ~rvbus, level: 0.2], ~rvb, \addBefore);
+)
 
 
 ~keys = Synth(\keys, nil, s.asTarget, \addBefore);

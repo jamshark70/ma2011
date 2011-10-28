@@ -14,6 +14,8 @@ s.options.memSize = 2**17;
 
 ~mungoClient = NetAddr(~mungo, 57120);
 ~mungoServer = NetAddr(~mungo, 57110);
+
+MIDIClient.init;
 )
 
 ~receiver.free;
@@ -40,16 +42,18 @@ BP(\wtop) =>.72 MT(1);
 
 
 (
-~rawbus = Bus.control(s, 5);
-~lagbus = Bus.control(s, 5);
-
+~rawbus = Bus.control(s, 7);
+~lagbus = Bus.control(s, 7);
 ~lagger = Synth(\lags5, [inbus: ~rawbus, outbus: ~lagbus], target: s.asTarget, addAction: \addBefore);
+~mouseToBus = {
+	Out.kr([~rawbus, ~lagbus], [MouseX.kr(0, 1, 0, 0.1), MouseY.kr(0, 1, 0, 0.1)]);
+}.play;
 
 ~transmit.remove;
 ~transmit = SimpleController(BP(\ml)).put(\allPtsReceived, e { |m|
 	var toSend = [m.centroid.x, m.centroid.y,
 		m.anglePoint.theta, m.anglePoint.rho, m.normmag];
-	~mungoServer.tryPerform(\sendMsg, \c_setn, 5, 5, *toSend);
+	~mungoServer.tryPerform(\sendMsg, \c_setn, 7, 5, *toSend);
 	s.sendMsg(\c_setn, ~rawbus.index, 5, *toSend);
 });
 )
