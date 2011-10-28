@@ -11,6 +11,20 @@ SynthDef(\masterLimiter, {
 	ReplaceOut.ar(0, Limiter.ar(In.ar(0, 2)));
 }).perform(~addSel);
 
+
+SynthDef(\linmap, { |inbus, outbus, inMin, inMax, outMin, outMax|
+	ReplaceOut.kr(outbus,
+		In.kr(inbus, 1).linlin(inMin, inMax, outMin, outMax)
+	);
+}).perform(~addSel);
+
+SynthDef(\expmap, { |inbus, outbus, inMin, inMax, outMin, outMax|
+	ReplaceOut.kr(outbus,
+		In.kr(inbus, 1).linexp(inMin, inMax, outMin, outMax)
+	);
+}).perform(~addSel);
+
+
 SynthDef(\aps, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1, release = 0.5,
 	start = 0, rate = 1, amp = 0.1, dcyMul = 1, apdecay = 1, topaplevel = 0.25, drylev = 1,
 	balance = 0|
@@ -74,3 +88,65 @@ SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1
 	sig = Limiter.ar(sig * amp, 0.9);
 	Out.ar(out, sig * eg)
 }).perform(~addSel);
+
+
+~makeLagDef = { |numChan = 1|
+	SynthDef("lags" ++ numChan, { |inbus, outbus, lagtime = 0.15|
+		var	sig = In.kr(inbus, numChan),
+		trigs = HPZ1.kr(sig).abs > 0,
+		envs = sig.asArray.collect { |chan, i|
+			EnvGen.kr(Env([chan, chan], [lagtime]), trigs[i])
+		};
+		ReplaceOut.kr(outbus, envs);
+	}).perform(topEnvironment[\addSel]);
+};
+
+~makeLagDef.(5);
+
+
+~mappedData = IdentityDictionary.new;
+~ctlNums = (x: 0, y: 1, theta: 2, rho: 3, mag: 4, angle: 2, radius: 3, rad: 3);
+~map = inEnvir({ |synth, name, ctlName, inMin, inMax, outMin, outMax, curve(\lin), source(~lagbus)|
+	var synthmaps, mapping;
+	~unmap.(synth, name);
+	synthmaps = ~mappedData[synth];
+	if(synthmaps.isNil) {
+		synthmaps = IdentityDictionary.new;
+		~mappedData[synth] = synthmaps;
+	};
+	synthmaps.put(name, List.new);
+	mapping = IdentityDictionary.new;
+	mapping[\bus] = Bus.control(s, 1);
+	mapping[\ctlname] = ctlName;
+	mapping[\mapsynth] = Synth(curve ++ "map",
+		[
+			inbus: source.index + (~ctlNums[name] ? 0),
+			outbus: mapping[\bus]
+		] ++ [#[inMin, inMax, outMin, outMax], [inMin, inMax, outMin, outMax]].flop.flat,
+		target: s.asTarget, addAction: \addBefore
+	);
+	mapping[\listener] = Updater(synth, { |node, what|
+		if(what == \n_end) {
+			mapping[\listener].remove;
+			topEnvironment.use { ~unmap.(synth, name) }
+		};
+	});
+	synth.map(ctlName, mapping[\bus]);
+	synth.register;
+	synthmaps[name].add(mapping);
+	mapping
+}, topEnvironment);
+
+~unmap = { |synth, name|
+	var synthmaps;
+	if((synthmaps = ~mappedData[synth]).notNil) {
+		synthmaps[name].do { |mapping|
+			if(synth.isPlaying) { synth.map(mapping[\ctlname], -1) };
+			mapping[\mapsynth].free;
+			mapping[\bus].free;
+			mapping[\listener].remove;
+		};
+		synthmaps.removeAt(name);
+		if(synthmaps.size == 0) { ~mappedData.removeAt(synth) };
+	};
+};

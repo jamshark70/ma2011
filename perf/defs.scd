@@ -1,29 +1,4 @@
 
-if(~master.tryPerform(\isRunning) != true) {
-	~master = MixerChannel(\master, s, 2, 2);
-	if(MCG.exists(7)) { ~master => MCG(7) };
-};
-
-if(~rvbchan.tryPerform(\isRunning) != true) {
-	~rvbchan = MixerChannel(\rvb, s, 2, 2, level: 2.sqrt, outbus: ~master, completionFunc: { |chan|
-		~rvb = chan.playfx(Instr("busfx.freeverb2"), [0, 1.0, 0.69659996032715, 0.078699998557568, 1.0]);
-	});
-	if(MCG.exists(6)) { ~rvbchan => MCG(6) };
-};
-
-if(~hpchan.tryPerform(\isRunning) != true) {
-	~hpchan = MixerChannel(\hp, s, 2, 2, level: 2.sqrt, outbus: ~rvbchan, completionFunc: { |chan|
-		~hp = chan.playfx(
-			Instr("busfx.hpf", { |bus, numChan = 1, freq|
-				HPF.ar(In.ar(bus, numChan), freq)
-			}, [\audiobus, StaticSpec(1, 8, \lin, 1), \freq]),
-			[0, 2, 300]
-		);
-	});
-	if(MCG.exists(5)) { ~hpchan => MCG(5) };
-};
-
-
 do((0..11)) { |i|
 	var	name = i.asMIDINote(5).reject(_.isDecDigit).replace("#", "s").toLower.asSymbol;
 	Mode(\default).v.copy.root_(i)/*.transposeRoot(2)*/ => Mode(name);

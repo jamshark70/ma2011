@@ -1,20 +1,20 @@
-d = ".....";  // fill with the real path to the main dir
-// d = thisProcess.nowExecutingPath.dirname.dirname;
+~dir = ".....";  // fill with the real path to the main dir
+// ~dir = thisProcess.nowExecutingPath.dirname.dirname;
 
 s.options.memSize = 2**17;
 s.boot;
 
-(d +/+ "perf/synthdefs.scd").load;
+(~dir +/+ "perf/synthdefs.scd").load;
 
 ~limiter = Synth(\masterLimiter, nil, s.asTarget, \addAfter);
 
-b = Buffer.readChannel(s, d +/+ "samples/starbucks2.aiff", channels: #[0]);
+b = Buffer.readChannel(s, ~dir +/+ "samples/starbucks2.aiff", channels: #[0]);
 
 
 BP.loadGui;
 
 m = MixerChannel(\test1, s, 1, 2);
-n = MixerChannel(\test1, s, 2, 2);
+n = MixerChannel(\test2, s, 2, 2);
 m => MCG(6); n => MCG(7);
 
 PeakMonitor(n);
@@ -176,7 +176,9 @@ a.trace
 
 
 
-SynthDef(\fmg, { |afreq = 400, thresh = 0.8, rate = 1, minTrigTime = 0.1, gate = 1, out|
+SynthDef(\fmg, { |afreq = 400, thresh = 0.8, rate = 1, minTrigTime = 0.1, gate = 1, out,
+	graindur = 0.12, maxratio = 5, maxrand = 0.05, modindexlo = 0.3, modindexhi = 1.2,
+	panwidth = 1, pancenter = 0, envbuf = -1|
 	var n = 10,
 	sig = Normalizer.ar(PlayBuf.ar(1, b, rate: rate, loop: 1)),
 	analysis = BPF.ar(
@@ -189,11 +191,14 @@ SynthDef(\fmg, { |afreq = 400, thresh = 0.8, rate = 1, minTrigTime = 0.1, gate =
 	gfreqs = NamedControl.kr(\gfreqs, 200 * (1..n)),
 	eg = EnvGen.kr(Env.asr(3, 1, 6, #[4, -4]), gate, doneAction: 2);
 	Out.ar(out,
-		GrainFM.ar(2, trigs, dur: 0.12,
-			carfreq: gfreqs, modfreq: gfreqs * (TIRand.kr(1, 5, onetrig) + TRand.kr(-0.05, 0.05, onetrig)),
-			index: TRand.kr(0.3, 1.2, onetrig),
-			pan: TRand.kr(-1.0, 1.0, trigs),
-			envbufnum: ~ebuf ?? { -1 }, maxGrains: 512
+		GrainFM.ar(2, trigs, dur: graindur,
+			carfreq: gfreqs,
+			modfreq: gfreqs *
+				(TIRand.kr(1, maxratio, onetrig) + TRand.kr(maxrand.neg, maxrand, onetrig)),
+			index: TRand.kr(modindexlo, modindexhi, onetrig),
+			pan: TRand.kr((pancenter - panwidth).clip(-1, 1),
+				(pancenter + panwidth).clip(-1, 1), trigs),
+			envbufnum: envbuf
 		).sum * eg
 	)
 }).add;
@@ -203,13 +208,25 @@ c.setn(38.midicps * (1..10));
 
 n = MCG(7).v.mixer;
 
-a = n.play(\fmg, [thresh: g, gfreqs: c.numChannels.collect { |i| ("c" ++ (c.index + i)).asSymbol }]);
+a = n.play(\fmg, [thresh: 0.09, gfreqs: c.numChannels.collect { |i| ("c" ++ (c.index + i)).asSymbol }, envbuf: ~ebuf]);
 
 a.trace;
 
-a.free;
+a.release;
 
 // needs reverb!!!
 // map parameters on, especially to make this very quiet, unobtrusive
 
-(instrument: \ctlPoint, outbus: c.index + (0..9), time: 12, curve: \exp, value: (Pseries(-7, Pwhite(1, 4, inf), 10).asStream.all.degreeToKey(#[0, 2, 4, 5, 7, 9, 11], 12) + 62).midicps).play;
+(instrument: \ctlPoint, outbus: c.index + (0..9), time: 12, curve: 0, value: (Pseries(-7, Pwhite(1, 4, inf), 10).asStream.all.degreeToKey(#[0, 2, 4, 5, 7, 9, 11], 12) + 62).midicps).play;
+
+
+
+
+
+// synth, name, ctlName, inMin, inMax, outMin, outMax
+z = ~map.(a, \mag, \thresh, 0, 0.4, 0.14, 0.01, \lin);
+
+~unmap.(a, \mag);
+
+a.release;
+
