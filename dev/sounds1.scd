@@ -251,3 +251,71 @@ a.free;
 ~xfer.trace
 
 PeakMonitor(~rvbus)
+
+
+
+// randcomb
+b = Buffer.readChannel(s, ~dir +/+ "samples/starbucks2.aiff", channels: #[0]);
+
+SynthDef(\normbufplay, { |bufnum, out, rate = 1, start = 0|
+	Out.ar(out, Normalizer.ar(PlayBuf.ar(1, bufnum, rate: rate, startPos: start, loop: 1)))
+}).add;
+
+~starbucksbus = Bus.audio(s, 1);
+
+~bufplay = Synth(\normbufplay, [out: ~starbucksbus, bufnum: b], s.asTarget, \addBefore);
+
+SynthDef(\randcomb, { |inbus, prob = 0.5, t_trig = 1, gate = 1, xftime = 0.5, spread = 0, out|
+	var sig = In.ar(inbus, 1),
+	fft = FFT(LocalBuf(1024, 1), sig),
+	fftR,
+	fft2 = PV_Copy(fft, LocalBuf(1024, 1)),
+	fft2R,
+	panTarget = ToggleFF.kr(t_trig),
+	fbTime = Latch.kr(xftime, t_trig),
+	tgate = Trig1.kr(t_trig, fbTime),
+	prevtrig = Delay1.kr(t_trig),
+	gap = (t_trig >= 1) * (prevtrig <= 0) * (tgate >= 1),
+	pan = EnvGen.ar(Env(panTarget ! 3, [fbTime, ControlDur.ir], releaseNode: 1), tgate - gap),
+	eg = EnvGen.kr(Env.asr(2, 1, 3), gate, doneAction: 2),
+	sig1, sig2;
+	fft = PV_RandComb(fft <! fft2, prob, t_trig * (panTarget <= 0));
+	fftR = PV_Copy(fft, LocalBuf(1024, 1));
+	fftR = PV_RandComb(fftR, 0.5);
+	fft = PV_MagSubtract(fft, fftR);
+	fft2 = PV_RandComb(fft2, prob, t_trig * (panTarget >= 1));
+	fft2R = PV_Copy(fft2, LocalBuf(1024, 1));
+	fft2R = PV_RandComb(fft2R, 0.5);
+	fft2 = PV_MagSubtract(fft2, fft2R);
+	sig1 = Pan2.ar(IFFT([fft, fftR]), spread * #[-1, 1]);
+	sig2 = Pan2.ar(IFFT([fft2, fft2R]), spread * #[-1, 1]);
+	Out.ar(out, XFade2.ar(sig1, sig2, pan.madd(2, -1), eg).sum)
+}).add;
+
+XFade2.kr([1, 2], [3, 4], 0).insp
+
+~randcomb = ~master.play(\randcomb, [inbus: ~starbucksbus, prob: 0.9]);
+
+~map.listArgs
+// ~map.(~randcomb, \y, \prob, -0.7, 0.7, 0.1, 0.9);
+~map.(~randcomb, \mag, \prob, 0, 0.8, 0.9, 0.1);
+~map.(~randcomb, \x, \spread, -0.6, 0.6, -1, 1);
+
+~unmap.(~randcomb, \theta);
+
+~rcmc = MixerChannel(\rcomb, s, 2, 2, outbus: ~master);
+~randcomb.moveToHead(~rcmc.synthgroup);
+~randcomb.set(\out, ~rcmc.inbus);
+~rcmc => MCG(0);
+
+
+~randcomb.release;
+
+~randcomb.set(\t_trig, 1);
+
+~randcomb.trace;
+
+a.free;
+
+a = ~master.play { In.ar(~starbucksbus, 1) ! 2 };
+a.free;

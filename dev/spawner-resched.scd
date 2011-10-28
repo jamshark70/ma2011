@@ -527,3 +527,43 @@ PR(\chordsAndModes) => BP(\cm);
 BP(\st).chProc = BP(\cm);
 
 BP(\st).listVars;
+
+
+
+
+
+// random dev stuff
+
+m = MixerChannel(\test2, s, 2, 2, outbus: ~master);
+m => MCG(0);
+
+// maybe ok, try to influence by mouse?
+// tapping?
+
+q = m.play(p = PbindProxy(
+	\instrument, \combs,
+	\dur, Pexprand(0.1, 0.4, inf),
+	\legato, Pexprand(0.5, 2.5, inf),
+	\sustain, Pkey(\dur) * Pkey(\legato),
+	\attack, 0.01,
+	\release, 0.08,
+	\bufnum, b,
+	\start, Pwhite(0, (b.numFrames * 0.9).asInteger, inf),
+	\rate, 1,
+	\dcyMul, 1,
+	\apdecay, 1,
+	\topaplevel, 1,
+	\drylev, 1,
+	\balance, Pwhite(0.6, 1.0, inf) * Prand(#[-1, 1], inf),
+	\balance2, Pwhite(0.6, 1.0, inf) * Pkey(\balance).sign.neg,
+	\balMoveTime, Pkey(\sustain) * Pwhite(0.3, 0.7, inf)
+));
+
+p.set(\legato, Pexprand(0.4, 1.3, inf));
+
+p.set(\dur, Pseq([Pexprand(0.1, 0.4, { rrand(8, 24) }), Pexprand(0.06, 0.11, { rrand(7, 16) })], inf));
+
+p.set(\apdecay, Pexprand(0.2, 1.2, inf));
+p.set(\dcyMul, );
+
+q.stop;

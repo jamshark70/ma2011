@@ -23,12 +23,46 @@ MIDIClient.init;
 
 \flash2.eval("you there?");
 
+\flash.eval("you don't need Max/M$$$$P".escapeChar($$));
+\flash.eval("you don't need Mac O$$$$X".escapeChar($$));
 
 
-BP.loadGui;
+
+(
+var mtw, mxw, vpw;
+s.boot;
+
+MT(1).gui;
+mtw = Window.allWindows.last;
+mtw.bounds = mtw.bounds.right_(Window.screenBounds.right).bottom_(Window.screenBounds.bottom);
+
+\makeEmptyMixer8.eval;
+mxw = MixingBoard.at(0).w;
+defer({ mxw.bounds = mxw.bounds.right_(Window.screenBounds.right).top_(0) }, 0.5);
+
+VoicerProxy.new => VP.prNew(0);
+5.do { VP(0).v.addControlProxy(VoicerGCProxy.new, true) };
+VP(0).v.gui;
+vpw = Window.allWindows.last;
+vpw.bounds = vpw.bounds
+	.right_(Window.screenBounds.right-12)
+	.bottom_(Window.screenBounds.bottom);
+mtw.alwaysOnTop_(true);
+)
+
+// BP.loadGui;
 
 (~dir +/+ "perf/server-defs.scd").loadPath;
 (~dir +/+ "perf/synthdefs.scd").loadPath;
+
+b = Buffer.readChannel(s, ~dir +/+ "samples/starbucks2.aiff", channels: #[0]);
+
+
+
+
+
+
+
 
 
 (~dir +/+ "perf/loadVideo.scd").loadPath;

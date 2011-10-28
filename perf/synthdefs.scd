@@ -52,7 +52,7 @@ SynthDef(\reverb, { |in, out, earlyDecay = 0.08, decay = 2, earlyAmp = 0.2, tail
 
 SynthDef(\aps, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1, release = 0.5,
 	start = 0, rate = 1, amp = 0.1, dcyMul = 1, apdecay = 1, topaplevel = 0.25, drylev = 1,
-	balance = 0|
+	balance = 0, balance2 = 0, balMoveTime = 1|
 	var sig = Normalizer.ar(PlayBuf.ar(1, bufnum, startPos: start, rate: rate, loop: 1), 0.9),
 	sum = 0,
 	delayscale = MouseX.kr(1, 0.08, lag: 0.1),
@@ -76,7 +76,7 @@ SynthDef(\aps, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1, 
 			mul: (level - 1) * sensitivity + 1
 		);
 	};
-	sum = Balance2.ar(sum[0], sum[1], balance);
+	sum = Balance2.ar(sum[0], sum[1], Line.kr(balance, balance2, balMoveTime));
 	sig = LeakDC.ar(sig * drylev + sum);
 	Out.ar(out, sig * eg * amp)
 }).perform(~addSel);
@@ -84,7 +84,7 @@ SynthDef(\aps, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1, 
 
 SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1, release = 0.5,
 	start = 0, rate = 1, amp = 0.1, dcyMul = 1, apdecay = 1, topaplevel = 0.25, drylev = 1,
-	balance = 0|
+	balance = 0, balance2 = 0, balMoveTime = 1|
 	var sig = Normalizer.ar(PlayBuf.ar(1, bufnum, startPos: start, rate: rate, loop: 1), 0.9),
 	sum = 0,
 	delayscale = MouseX.kr(1, 0.08, lag: 0.1),
@@ -97,7 +97,7 @@ SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1
 	eg = EnvGen.kr(Env.asr(attack, susLev, release, #[4, -4]), gate, doneAction: 2);
 	3.do { |i|
 		var level = IEnvGen.kr(apEnvs[i], aplevel);
-		sum = sum + AllpassL.ar(if(i == 0) { sig } { sum },
+		sum = sum + CombL.ar(if(i == 0) { sig } { sum },
 			maxdelaytime: 0.1,
 			delaytime: LFNoise1.kr(
 				{ Rand(2.0, 5.0) }.dup,
@@ -108,7 +108,7 @@ SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1
 			mul: (level - 1) * sensitivity + 1
 		);
 	};
-	sum = Balance2.ar(sum[0], sum[1], balance);
+	sum = Balance2.ar(sum[0], sum[1], Line.kr(balance, balance2, balMoveTime));
 	sig = LeakDC.ar(sig * drylev + sum);
 	sig = Limiter.ar(sig * amp, 0.9);
 	Out.ar(out, sig * eg)
@@ -131,36 +131,38 @@ SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1
 
 ~mappedData = IdentityDictionary.new;
 ~ctlNums = (x: 0, y: 1, theta: 2, rho: 3, mag: 4, angle: 2, radius: 3, rad: 3, mx: 5, mouseX: 5, my: 6, mouseY: 6);
-~map = inEnvir({ |synth, name, ctlName, inMin, inMax, outMin, outMax, curve(\lin), source(~lagbus)|
+~map = { |synth, name, ctlName, inMin, inMax, outMin, outMax, curve(\lin), source(~lagbus)|
 	var synthmaps, mapping;
-	~unmap.(synth, name);
-	synthmaps = ~mappedData[synth];
-	if(synthmaps.isNil) {
-		synthmaps = IdentityDictionary.new;
-		~mappedData[synth] = synthmaps;
-	};
-	synthmaps.put(name, List.new);
-	mapping = IdentityDictionary.new;
-	mapping[\bus] = Bus.control(s, 1);
-	mapping[\ctlname] = ctlName;
-	mapping[\mapsynth] = Synth(curve ++ "map",
-		[
-			inbus: source.index + (~ctlNums[name] ? 0),
-			outbus: mapping[\bus]
-		] ++ [#[inMin, inMax, outMin, outMax], [inMin, inMax, outMin, outMax]].flop.flat,
-		target: s.asTarget, addAction: \addBefore
-	);
-	mapping[\listener] = Updater(synth, { |node, what|
-		if(what == \n_end) {
-			mapping[\listener].remove;
-			topEnvironment.use { ~unmap.(synth, name) }
+	if(synth.isKindOf(Synth)) {
+		~unmap.(synth, name);
+		synthmaps = ~mappedData[synth];
+		if(synthmaps.isNil) {
+			synthmaps = IdentityDictionary.new;
+			~mappedData[synth] = synthmaps;
 		};
-	});
-	synth.map(ctlName, mapping[\bus]);
-	synth.register;
-	synthmaps[name].add(mapping);
-	mapping
-}, topEnvironment);
+		synthmaps.put(name, List.new);
+		mapping = IdentityDictionary.new;
+		mapping[\bus] = Bus.control(s, 1);
+		mapping[\ctlname] = ctlName;
+		mapping[\mapsynth] = Synth(curve ++ "map",
+			[
+				inbus: source.index + (~ctlNums[name] ? 0),
+				outbus: mapping[\bus]
+			] ++ [#[inMin, inMax, outMin, outMax], [inMin, inMax, outMin, outMax]].flop.flat,
+			target: s.asTarget, addAction: \addBefore
+		);
+		mapping[\listener] = Updater(synth, { |node, what|
+			if(what == \n_end) {
+				mapping[\listener].remove;
+				topEnvironment.use { ~unmap.(synth, name) }
+			};
+		});
+		synth.map(ctlName, mapping[\bus]);
+		synth.register;
+		synthmaps[name].add(mapping);
+		mapping
+	};
+};
 
 ~unmap = { |synth, name|
 	var synthmaps;
