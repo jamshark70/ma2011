@@ -294,12 +294,16 @@ SynthDef(\randcomb, { |inbus, prob = 0.5, t_trig = 1, gate = 1, xftime = 0.5, sp
 
 XFade2.kr([1, 2], [3, 4], 0).insp
 
-~randcomb = ~master.play(\randcomb, [inbus: ~starbucksbus, prob: 0.9]);
+~randcomb = n.play(\randcomb, [inbus: ~starbucksbus, prob: 0.9]);
 
 ~map.listArgs
 // ~map.(~randcomb, \y, \prob, -0.7, 0.7, 0.1, 0.9);
 ~map.(~randcomb, \mag, \prob, 0, 0.8, 0.9, 0.1);
 ~map.(~randcomb, \x, \spread, -0.6, 0.6, -1, 1);
+
+Fact.keys
+Fact(\lrtrig) => BP(\lrtrig);
+BP(\lrtrig) => MT(1);
 
 ~unmap.(~randcomb, \theta);
 
@@ -319,3 +323,316 @@ a.free;
 
 a = ~master.play { In.ar(~starbucksbus, 1) ! 2 };
 a.free;
+
+
+c.free;
+c = Buffer.alloc(s, 20.calcPVRecSize(1024, 0.25, 44100));
+c.write(~dir +/+ "samples/starbuckspv.aiff", sampleFormat: "float");
+
+{
+	var fft = FFT(LocalBuf(1024, 1), In.ar(~starbucksbus, 1), 0.25, 1);
+	PV_RecordBuf(fft, c, run: 1, hop: 0.25);
+	FreeSelf.kr(Trig1.kr(Impulse.kr(0), 20.0) <= 0);
+	0
+}.play;
+
+a = ~master.play {
+	var fft = PV_PlayBuf(LocalBuf(1024, 1), c, 0.1, loop: 0);
+	(IFFT(fft) * EnvGen.kr(Env.linen(0.01, 1.98, 0.01), doneAction: 2)) ! 2
+};
+
+
+f = (c.numFrames - 3) / 1024;
+x = 4.1;
+a = ~master.play {
+	var	pos = EnvGen.kr(Env([0, 1 - (x/f), 1 - (x/f)], #[3, 2], -6), doneAction: 2),
+	fft = PV_BufRd(LocalBuf(1024), c, pos);
+	IFFT(fft) ! 2
+};
+
+
+
+a.trace;
+
+c.getn(0, 50, _.postln);
+
+
+SynthDef(\pv, { |out, pvbuf, amp = 0.1, time = 0.5, panMul = -1, panAdd = 0, scrambleWidth = 0.2|
+	var point = EnvGen.kr(NamedControl.kr(\ptenv, (0 ! 20).overWrite(Env(#[0, 1], [1]).asArray)), timeScale: time),
+	stretch = EnvGen.kr(NamedControl.kr(\stretchenv, (0 ! 20).overWrite(Env.one.asArray)), timeScale: time),
+	shift = EnvGen.kr(NamedControl.kr(\shiftenv, (0 ! 20).overWrite(Env.zero.asArray)), timeScale: time),
+	scramble = EnvGen.kr(NamedControl.kr(\scramble, (0 ! 20).overWrite(Env.zero.asArray)), timeScale: time),
+	pan1 = EnvGen.kr(NamedControl.kr(\pan1env, (0 ! 20).overWrite(Env.zero.asArray)), timeScale: time),
+	pan2 = (pan1 * panMul + panAdd).fold(-1, 1),
+	eg = EnvGen.kr(NamedControl.kr(\env, (0 ! 20).overWrite(Env.perc(0.01, 0.99).asArray)), timeScale: time, doneAction: 2),
+	fft, fft2;
+	fft = PV_BufRd(LocalBuf(1024, 1), pvbuf, point);
+	fft = PV_BinScramble(fft, scramble, scrambleWidth);
+	fft = PV_BinShift(fft, stretch, shift);
+	fft2 = PV_Copy(fft, LocalBuf(1024, 1));
+	fft = IFFT(PV_OddBin(fft <! fft2));
+	fft2 = IFFT(PV_EvenBin(fft2));
+	Out.ar(out, Pan2.ar([fft, fft2], [pan1, pan2], eg * amp).sum);
+}).add;
+
+p = ~master.play(Pbind(
+	\instrument, Pn(\pv, 1),
+	\pvbuf, c,
+	\time, 1.0,
+	\ptenv, [Env(#[0.2, 0.3], #[0.7], -5)],
+	\pan1env, [Env(#[-1, 1], #[1])],
+	\env, [Env.linen(0.01, 0.98, 0.01)],
+	\amp, 0.5
+));
+
+
+d = (
+	hold: Pbind(
+		// yes, I want both levels to be the same, so no {}
+		\ptenv, Pfunc({ Env(Array.fill(2, rrand(0.0, 0.9)), #[1]) })
+	),
+	// fast!
+	sweep: Pbind(
+		\ptenv, Pfunc({ |ev|
+			var pt1 = rrand(0.0, 0.9);
+			Env([pt1, (pt1 + (rrand(0.1, 0.3) * BP(\ml).anglePoint.x * #[-3, 3].choose)).fold(0, 0.9)], #[1])
+		})
+	),
+	sweepRev: Pbind(
+		\ptenv, Pfunc({
+			var t = rrand(0.1, 0.8),
+			plus = rrand(0.1, 0.3) * BP(\ml).anglePoint.x * #[-3, 3].choose,
+			pt1 = rrand(0.0, 0.9);
+			Env([pt1, pt1 + plus, pt1 + (rrand(0.5, 0.8) * plus)], [t, 1-t], \sin)
+		})
+	),
+	holdswp: Pbind(
+		\ptenv, Pfunc({
+			var pt1 = rrand(0.0, 0.9), hold = rrand(0.2, 0.6);
+			Env([pt1, pt1, (pt1 + (rrand(0.1, 0.3) * #[-1, 1].choose)).wrap(0, 1)],
+				[hold, 1 - hold], 5)
+		})
+	),
+	swphold: Pbind(
+		\ptenv, Pfunc({
+			var pt1 = rrand(0.0, 0.9), hold = rrand(0.2, 0.6),
+			pt2 = (pt1 + (rrand(0.1, 0.3) * #[-1, 1].choose)).wrap(0, 1);
+			Env([pt1, pt2, pt2], [1 - hold, hold], -5)
+		})
+	)
+);
+
+Pdefn(\which, \sweep);
+Pdefn(\which, Prand([Pn(\hold, { rrand(1, 6) }), \sweep, \sweepRev, \holdswp, \swphold], inf));
+
+m = MixerChannel(\pv, s, 2, 2, outbus: ~master);
+m => MCG(1);
+
+p = m.play(
+	Psym1(Pkey(\which), d)
+	<>
+	(q = PbindProxy(
+		\which, Pdefn(\which),
+		\instrument, \pv,
+		\pvbuf, c,
+		\delta, Pexprand(0.12, 0.8, inf),
+		\time, Pkey(\delta) * Pexprand(0.7, 1.2, inf),
+		\pan1env, Pfunc({ Env(Array.fill(2, { 1.0.rand2 }), #[1]) }),
+		\panMul, Prand(#[-1, 1], inf),
+		\panAdd, Pwhite(0.4, 0.7, inf) * Prand(#[-1, 1], inf),
+		\env, [Env.perc(0.01, 0.98)],  // [Env.linen(0.01, 0.98, 0.01)],
+		\amp, 0.5
+	))
+);
+
+d[\hold] = Pbind(
+		// yes, I want both levels to be the same, so no {}
+	\ptenv, Pfunc({ Env(Array.fill(2, rrand(0.0, 0.9)), #[1]) }),
+	\delta, Pexprand(0.07, 0.12, inf),
+	\time, (Pkey(\delta) * Pexprand(0.5, 12.0, inf))
+);
+
+d[\sweep] = Pbind(
+	\ptenv, Pfunc({ |ev|
+		var pt1 = rrand(0.0, 0.9);
+		Env([pt1, (pt1 + debug(rrand(0.1, 0.3) * BP(\ml).anglePoint.x * 3 * #[-1, 1].choose)).fold(0, 0.9)], #[1])
+	})
+);
+
+Pdefn(\which, Pif(
+	Pfunc({ BP(\ml).anglePoint.x.abs > 0.3 }),
+	Pwxrand([Pn(\hold, { rrand(1, 6) }), \sweep, \sweepRev, \holdswp, \swphold], #[1, 3, 3, 3, 3].normalizeSum, inf),
+	Pwxrand([Pn(\hold, { rrand(1, 6) }), \sweep, \sweepRev, \holdswp, \swphold], #[6, 1, 1, 1, 1].normalizeSum, inf)
+));
+
+
+Pdefn(\which, \sweepRev);
+
+q.set(\delta, Pswitch1([
+	Pexprand(0.1, 0.3, inf),
+	Pexprand(0.8, 3.2, inf)
+], Pfunc({ max(0, 0.7 - BP(\ml).normmag).debug.coin.binaryValue })));
+
+q.set(\shiftenv, Pfunc({
+	Env({ 30.rand2 } ! 2, #[1])
+}));
+
+q.set(\shiftenv, [Env.zero]);
+
+q.set(\scramble, Pfunc({ Env(rrand(0.01, 0.99).debug("a") ! 2, #[1]) }));
+
+q.set(\scramble, Pfunc({ |ev|
+	if(ev[\time] > 0.7) { [Env([rrand(0.6, 0.9), 0], #[1], \sin)] }
+	{ [Env.zero] }
+}));
+
+q.set(\scramble, Pfunc({ |ev|
+	if(ev[\time] > 0.7) { [Env([0, rrand(0.6, 0.9)].rotate(0.7.rand.round.asInteger), #[1], rrand(1.5, 4.0))] }
+	{ [Env.zero] }
+}));
+
+p.stop;
+
+
+(
+PR(\abstractProcess).clone({
+	~event = (eventKey: \singleSynthPlayer);
+	~normmagThresh = 0.4;
+	~alwaysReset = true;
+
+	~prep = {
+		~chan = MixerChannel(~collIndex, s, 2, 2, outbus: topEnvironment[\master],
+			completionFunc: { |chan| chan.newPostSend(topEnvironment[\rvbchan], 0.632) });
+		~buf = Buffer.readAndQuery(s, topEnvironment[\dir] +/+ "samples/starbuckspv.aiff");
+	};
+
+	~freeCleanup = {
+		[~chan, ~buf].free;
+	};
+
+	~preparePlay = {
+		~listener = SimpleController(BP(\ml)).put(\allPtsReceived, e {
+			if(BP(\ml).normmag >= ~normmagThresh) { ~reschedule.() };
+		});
+	};
+
+	~stopCleanup = { ~listener.remove };
+
+	~reschedule = {
+		var oldESP = ~eventStreamPlayer;
+		~eventStreamPlayer = EventStreamPlayer(~eventStream, ~eventStreamPlayer.event).refresh;
+		~clock.sched(0, ~eventStreamPlayer);
+		oldESP.stream = nil;
+	};
+
+	~dict = (
+		hold: Pbind(
+			// yes, I want both levels to be the same, so no {}
+			\ptenv, Pfunc({ Env(Array.fill(2, rrand(0.0, 0.9)), #[1]) }),
+			\delta, Pexprand(0.07, 0.12, inf),
+			\time, (Pkey(\delta) * Pexprand(0.5, 12.0, inf))
+		),
+		// fast!
+		sweep: Pbind(
+			\ptenv, Pfunc({ |ev|
+				var pt1 = rrand(0.0, 0.9);
+				Env([pt1, (pt1 + (rrand(0.1, 0.3) * BP(\ml).anglePoint.x * #[-3, 3].choose)).fold(0, 0.9)], #[1])
+			})
+		),
+		sweepRev: Pbind(
+			\ptenv, Pfunc({
+				var t = rrand(0.1, 0.8),
+				plus = rrand(0.1, 0.3) * BP(\ml).anglePoint.x * #[-3, 3].choose,
+				pt1 = rrand(0.0, 0.9);
+				Env([pt1, pt1 + plus, pt1 + (rrand(0.5, 0.8) * plus)], [t, 1-t], \sin)
+			})
+		),
+		holdswp: Pbind(
+			\ptenv, Pfunc({
+				var pt1 = rrand(0.0, 0.9), hold = rrand(0.2, 0.6);
+				Env([pt1, pt1, (pt1 + (rrand(0.1, 0.3) * #[-1, 1].choose)).wrap(0, 1)],
+					[hold, 1 - hold], 5)
+			})
+		),
+		swphold: Pbind(
+			\ptenv, Pfunc({
+				var pt1 = rrand(0.0, 0.9), hold = rrand(0.2, 0.6),
+				pt2 = (pt1 + (rrand(0.1, 0.3) * #[-1, 1].choose)).wrap(0, 1);
+				Env([pt1, pt2, pt2], [1 - hold, hold], -5)
+			})
+		)
+	);
+
+	~which = Prand([Pn(\hold, { rrand(1, 6) }), \sweep, \sweepRev, \holdswp, \swphold], inf);
+	~delta = Pexprand(0.12, 0.8, inf);
+	~time = Pkey(\delta) * Pexprand(0.7, 1.2, inf);
+	~pan1env = Pfunc({ Env(Array.fill(2, { 1.0.rand2 }), #[1]) });
+	~panMul = Prand(#[-1, 1], inf);
+	~panAdd = Pwhite(0.4, 0.7, inf) * Prand(#[-1, 1], inf);
+	~env = [Env.perc(0.01, 0.98)];
+	~amp = 0.5;
+
+	~shiftenv = [Env.zero];
+	~scramble = [Env.zero];
+
+	// ~scramble = Pfunc({ Env(rrand(0.01, 0.99).debug("a") ! 2, #[1]) });
+
+	// ~scramble = Pfunc({ |ev|
+	// 	if(ev[\time] > 0.7) { [Env([rrand(0.6, 0.9), 0], #[1], \sin)] }
+	// 	{ [Env.zero] }
+	// });
+
+	// ~scramble = Pfunc({ |ev|
+	// 	if(ev[\time] > 0.7) { [Env([0, rrand(0.6, 0.9)].rotate(0.7.rand.round.asInteger), #[1], rrand(1.5, 4.0))] }
+	// 	{ [Env.zero] }
+	// });
+
+	~asPattern = {
+		Psym1(Pkey(\which), ~dict)
+		<>
+		Pbind(
+			\which, BPStream(\which),
+			\instrument, \pv,
+			\pvbuf, c,
+			\delta, BPStream(\delta),
+			\time, BPStream(\time),
+			\pan1env, BPStream(\pan1env),
+			\panMul, BPStream(\panMul),
+			\panAdd, BPStream(\panAdd),
+			\env, BPStream(\env),
+			\amp, BPStream(\amp),
+			\scramble, BPStream(\scramble),
+			\shiftenv, BPStream(\shiftenv)
+		)
+	};
+}) => PR(\pv);
+)
+
+BP(\pv).free;
+PR(\pv) => BP(\pv);
+BP(\pv) => MT(1);
+0 => BP(\pv);
+
+BP(\pv).delta = Pswitch1([
+	Pexprand(0.1, 0.3, inf),
+	Pexprand(0.8, 3.2, inf)
+], Pfunc({ max(0, 0.7 - BP(\ml).normmag).debug.coin.binaryValue }));
+
+z = Prout({
+	var count = rrand(1, 6), didPassThresh = false;
+	while { count > 0 } {
+		\hold.yield;
+		count = count - 1;
+		if(BP(\ml).normmag >= ~normmagThresh) {
+			didPassThresh = true
+		} {
+			if(didPassThresh) { count = 0 };  // early exit
+		};
+	};
+});
+
+BP(\pv).which = Pif(
+	Pfunc({ BP(\ml).anglePoint.x.abs > 0.3 }),
+	Pwxrand([z, \sweep, \sweepRev, \holdswp, \swphold], #[1, 3, 3, 3, 3].normalizeSum, inf),
+	Pwxrand([z, \sweep, \sweepRev, \holdswp, \swphold], #[6, 1, 1, 1, 1].normalizeSum, inf)
+);

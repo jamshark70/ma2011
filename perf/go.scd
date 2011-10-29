@@ -10,7 +10,7 @@ loadPath(~dir +/+ "perf/defs.scd");
 
 s.options.memSize = 2**17;
 
-~mungo = "192.168.3.61";
+~mungo = "192.168.1.101";
 
 ~mungoClient = NetAddr(~mungo, 57120);
 ~mungoServer = NetAddr(~mungo, 57110);
@@ -19,14 +19,21 @@ MIDIClient.init;
 )
 
 ~receiver.free;
-~receiver = OSCFunc({ |msg| \flash.eval(msg[1], msg[2]) }, '/mungo');
+~receiver = OSCFunc({ |msg| msg.postcs; \flash.eval(msg[1], msg[2]) }, '/mungo');
 
 \flash2.eval("you there?");
 
 \flash.eval("you don't need Max/M$$$$P".escapeChar($$));
 \flash.eval("you don't need Mac O$$$$X".escapeChar($$));
 
+\mungo.eval("hello");
 
+f = { |time, replyAddr, recvPort, msg| msg.postcs };
+thisProcess.recvOSCfunc = thisProcess.recvOSCfunc.addFunc(f);
+
+thisProcess.recvOSCfunc = thisProcess.recvOSCfunc.removeFunc(f);
+
+NetAddr.localAddr.sendMsg("/test");
 
 (
 var mtw, mxw, vpw;
@@ -56,8 +63,7 @@ mtw.alwaysOnTop_(true);
 (~dir +/+ "perf/synthdefs.scd").loadPath;
 
 b = Buffer.readChannel(s, ~dir +/+ "samples/starbucks2.aiff", channels: #[0]);
-
-
+c = Buffer.read(s, ~dir +/+ "samples/starbuckspv.aiff");
 
 
 
@@ -80,14 +86,14 @@ BP(\wtop) =>.72 MT(1);
 ~lagbus = Bus.control(s, 7);
 ~lagger = Synth(\lags5, [inbus: ~rawbus, outbus: ~lagbus], target: s.asTarget, addAction: \addBefore);
 ~mouseToBus = {
-	Out.kr([~rawbus, ~lagbus], [MouseX.kr(0, 1, 0, 0.1), MouseY.kr(0, 1, 0, 0.1)]);
+	Out.kr([~rawbus.index + 5, ~lagbus.index + 5], [MouseX.kr(0, 1, 0, 0.1), MouseY.kr(0, 1, 0, 0.1)]);
 }.play;
 
 ~transmit.remove;
 ~transmit = SimpleController(BP(\ml)).put(\allPtsReceived, e { |m|
 	var toSend = [m.centroid.x, m.centroid.y,
 		m.anglePoint.theta, m.anglePoint.rho, m.normmag];
-	~mungoServer.tryPerform(\sendMsg, \c_setn, 7, 5, *toSend);
+	~mungoServer.tryPerform(\sendMsg, \c_setn, 0, 5, *toSend);
 	s.sendMsg(\c_setn, ~rawbus.index, 5, *toSend);
 });
 )

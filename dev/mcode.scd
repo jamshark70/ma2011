@@ -253,6 +253,7 @@ a.trace;
 a.release;
 
 z = ~map.(a, \mag, \thresh, 0, 0.4, 0.14, 0.01, \lin);
+~map.(a, \mx, \xfade, 0, 1, 0, 1);
 ~map.(a, \x, \xfade, -0.7, 0.7, 0, 1);
 ~map.(a, \y, \aEGsens, -0.6, 0.6, 0, 1);
 
@@ -260,7 +261,7 @@ a.trace;
 
 // map parameters on, especially to make this very quiet, unobtrusive
 
-(instrument: \ctlPoint, outbus: c.index + (0..9), time: 12, curve: 0, value: (Pseries(-7, Pwhite(1, 4, inf), 10).asStream.all.degreeToKey(#[0, 2, 4, 5, 7, 9, 11], 12) + 62).midicps).play;
+(instrument: \ctlPoint, outbus: c.index + (0..9), time: 3, curve: 0, value: (Pseries(-7, Pwhite(1, 4, inf), 10).asStream.all.degreeToKey(#[0, 2, 4, 5, 7, 9, 11], 12) + 62).midicps).play;
 
 
 

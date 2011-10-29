@@ -177,3 +177,79 @@ SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1
 		if(synthmaps.size == 0) { ~mappedData.removeAt(synth) };
 	};
 };
+
+
+SynthDef(\pv, { |out, pvbuf, amp = 0.1, time = 0.5, panMul = -1, panAdd = 0, scrambleWidth = 0.2|
+	var point = EnvGen.kr(NamedControl.kr(\ptenv, (0 ! 20).overWrite(Env(#[0, 1], [1]).asArray)), timeScale: time),
+	stretch = EnvGen.kr(NamedControl.kr(\stretchenv, (0 ! 20).overWrite(Env.one.asArray)), timeScale: time),
+	shift = EnvGen.kr(NamedControl.kr(\shiftenv, (0 ! 20).overWrite(Env.zero.asArray)), timeScale: time),
+	scramble = EnvGen.kr(NamedControl.kr(\scramble, (0 ! 20).overWrite(Env.zero.asArray)), timeScale: time),
+	pan1 = EnvGen.kr(NamedControl.kr(\pan1env, (0 ! 20).overWrite(Env.zero.asArray)), timeScale: time),
+	pan2 = (pan1 * panMul + panAdd).fold(-1, 1),
+	eg = EnvGen.kr(NamedControl.kr(\env, (0 ! 20).overWrite(Env.perc(0.01, 0.99).asArray)), timeScale: time, doneAction: 2),
+	fft, fft2;
+	fft = PV_BufRd(LocalBuf(1024, 1), pvbuf, point);
+	fft = PV_BinScramble(fft, scramble, scrambleWidth);
+	fft = PV_BinShift(fft, stretch, shift);
+	fft2 = PV_Copy(fft, LocalBuf(1024, 1));
+	fft = IFFT(PV_OddBin(fft <! fft2));
+	fft2 = IFFT(PV_EvenBin(fft2));
+	Out.ar(out, Pan2.ar([fft, fft2], [pan1, pan2], eg * amp).sum);
+}).add;
+
+
+SynthDef(\normbufplay, { |bufnum, out, rate = 1, start = 0|
+	Out.ar(out, Normalizer.ar(PlayBuf.ar(1, bufnum, rate: rate, startPos: start, loop: 1)))
+}).add;
+
+
+SynthDef(\fmg, { |afreq = 400, thresh = 0.8, rate = 1, minTrigTime = 0.1, gate = 1, out,
+	graindur = 0.12, maxratio = 5, maxrand = 0.05, modindexlo = 0.3, modindexhi = 1.2,
+	gAmp = 0.2,
+	panwidth = 1, pancenter = 0, envbuf = -1, sbus,
+	apdecay = 0.1, aEGstretch = 1, aEGsens = 1, xfade = 0|
+	var n = 10,
+	sig = In.ar(sbus, 1),
+	analysis = BPF.ar(
+		sig,
+		afreq * rate * Array.fill(n, { |i| ((i+1) * ((1+sqrt(5)) / 2)) + LFNoise1.kr(Rand(1.6, 6.4)).exprange(0.95, 0.95.reciprocal) }),
+		0.03  // Q ~= 33
+	),
+	trigs = A2K.kr(Trig1.ar(analysis > (thresh / (1..n)), minTrigTime * Array.fill(n, { Rand(0.9, 0.111) }))),
+	onetrig = trigs.sum,
+	gfreqs = NamedControl.kr(\gfreqs, 200 * (1..n)),
+	eg = EnvGen.kr(Env.asr(3, 1, 6, #[4, -4]), gate, doneAction: 2),
+	grains = GrainFM.ar(2, trigs, dur: graindur,
+		carfreq: gfreqs,
+		modfreq: gfreqs *
+		(TIRand.kr(1, maxratio, onetrig) + TRand.kr(maxrand.neg, maxrand, onetrig)),
+		index: TRand.kr(modindexlo, modindexhi, onetrig),
+		pan: TRand.kr((pancenter - panwidth).clip(-1, 1),
+			(pancenter + panwidth).clip(-1, 1), trigs),
+		envbufnum: envbuf
+	).sum,
+	analysisEGs = (EnvGen.kr(Env.perc(0.01, graindur * aEGstretch), trigs) - 1) * aEGsens + 1;
+	analysis = Pan2.ar(analysis, (-1.0, 2/(n-1) - 1 .. 1.0).scramble, analysisEGs).sum;
+	analysis = analysis + AllpassL.ar(analysis, 0.05,
+		LFDNoise1.kr(LFNoise1.kr(0.5).range(0.3, 4), 0.02, 0.03),
+		apdecay
+	);
+	Out.ar(out,
+		XFade2.ar(analysis, grains * gAmp, xfade * 2 - 1, eg)
+	)
+}).add;
+
+
+
+SynthDef(\melody, { |freq = 440, gate = 1, mod_ratio = 2, mod_lev = 1, car_detune = 1.003, car_amp = 0.1, out, pan, freqlag = 0.15|
+	var ampenv = EnvGen.kr(Env.adsr(0.1, 0.4, 0.5, 0.15), gate, doneAction: 2),
+	modenv = EnvGen.kr(Env.adsr(0.08, 0.07, 0.5, 0.25)),
+	lfreq = Lag.kr(freq, freqlag),
+	sig = [1, car_detune].collect({ |fmul|
+		var f = lfreq * fmul,
+		mod = SinOsc.ar(f * mod_ratio, 0) * mod_lev * modenv;
+		SinOsc.ar(f + (f * mod), 0)
+	}).sum;
+	Out.ar(out, Pan2.ar(sig, pan, car_amp * ampenv));
+}).add;
+

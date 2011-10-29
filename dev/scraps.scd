@@ -102,3 +102,25 @@ BP(\arp).use { ~addStream.(~makePattern.(), 0.25) };
 BP(\arp).maxPlayers = 1;
 
 BP(\arp).cbufMap.map((0.0, 0.01 .. 1.0)).plot2;
+
+
+
+
+// not so hot anyway
+a = m.play {
+	var p = MouseX.kr(0, 0.1, 0, 0.1) + Rand(0.0, 0.8),
+	v = MouseY.kr(0, 1, 0, 0.1),
+	// muladd is because of a stupid bug
+	point = LFDNoise1.kr(MulAdd(v, 7.5, 0.5), v * 0.03, p),
+	fft = PV_BufRd(LocalBuf(1024), c, point);
+	(IFFT(fft) ! 2).value(UGen.buildSynthDef.children.do(_.postln))
+};
+
+a.trace
+
+a.free;
+
+MouseY.findRespondingMethodFor(\madd)
+
+MouseY.kr * 1 + 2
+

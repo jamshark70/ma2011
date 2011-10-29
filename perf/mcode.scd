@@ -30,7 +30,7 @@ b = Buffer.readChannel(s, d +/+ "samples/starbucks2.aiff", channels: #[0]);
 ~lagbus = Bus.control(s, 7);
 ~lagger = Synth(\lags5, [inbus: ~rawbus, outbus: ~lagbus], target: s.asTarget, addAction: \addBefore);
 ~mouseToBus = {
-	Out.kr([~rawbus, ~lagbus], [MouseX.kr(0, 1, 0, 0.1), MouseY.kr(0, 1, 0, 0.1)]);
+	Out.kr([~rawbus.index + 5, ~lagbus.index + 5], [MouseX.kr(0, 1, 0, 0.1), MouseY.kr(0, 1, 0, 0.1)]);
 }.play;
 
 ~limiter = Synth(\masterLimiter, nil, s.asTarget, \addAfter);
@@ -53,8 +53,9 @@ a = nil;
 ~resp1 = OSCresponderNode(s.addr, '/keystroke', { a.tryPerform(\set, \t_trig, 1) }).add;
 
 a = Synth(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
-a.free; a = nil;
 )
+
+// a.free; a = nil;
 
 
 (
@@ -156,4 +157,80 @@ f = {
 ~resp3.remove;
 ~resp3 = OSCresponderNode(s.addr, '/keystroke', { f.value }).add;
 
+~resp2.remove;
 
+~resp3.remove;
+
+
+
+// SECTION 2
+~starbucksbus = Bus.audio(s, 1);
+~bufplay = Synth(\normbufplay, [out: ~starbucksbus, bufnum: b], s.asTarget, \addBefore);
+
+c = Bus.control(s, 10);
+c.setn(38.midicps * (1..10));
+
+~fmg.free;
+~fmg = Synth(\fmg, [thresh: 0.09, gfreqs: c.numChannels.collect { |i| ("c" ++ (c.index + i)).asSymbol }, envbuf: ~ebuf, sbus: ~starbucksbus, out: ~srcbus]);
+
+
+~map.(a, \mag, \thresh, 0, 0.4, 0.14, 0.01, \lin);
+
+~map.(a, \mx, \xfade, 0, 1, 0, 1);
+
+~map.(a, \x, \xfade, -0.7, 0.7, 0, 1);
+
+~map.(a, \y, \aEGsens, -0.6, 0.6, 0, 1);
+
+
+a.release;
+
+
+
+// SECTION 3
+
+(
+~mousexy2lang.free;
+~mousexy2lang = {
+	var coord = [MouseX.kr(0, 1, 0, 0.1), MouseY.kr(0, 1, 0, 0.1)];
+	SendReply.kr(Impulse.kr(10), '/mousexy', coord);
+}.play;
+
+~mouseResp.remove;
+~mouseResp = OSCresponder(s.addr, '/mousexy', { |t, r, msg|
+	~mousex = msg[3];
+	~mousey = msg[4];
+}).add;
+)
+
+~intervalProbs = #[6, 5, 2, 1].normalizeSum;
+~melodyRange = #[-4, 14];
+
+~melody = PmonoArtic(\melody,
+	#[degree, jumped], Prout({ |inval|
+		var deg = rrand(1, 6), nextDeg, root, adjust, jumped;
+		loop {
+			root = topEnvironment[\root] ? 2;
+			adjust = (root-2).keyToDegree(#[0, 2, 4, 5, 7, 9, 11], 12).trunc;
+			nextDeg = deg + (
+				#[1, 2, 3, 4].wchoose(~intervalProbs)
+				* if(coin(~mousex)) { 1 } { -1 }
+			);
+			if(jumped = deg.inclusivelyBetween(*(~melodyRange)).not) {
+				nextDeg = ~melodyRange[0].rrand(~melodyRange[1]);
+			};
+			inval = [(deg - adjust), jumped].yield;
+			deg = nextDeg;
+		}
+	}),
+	\root, Pfunc({ topEnvironment[\root] ? 2 }),
+	\dur, Pwhite(1, 4, inf) * Pfunc({ ~mousey.linlin(0, 1, 0.2, 0.5) }),
+	\legato, Pif(Pbinop('or', Pkey(\jumped), Pfunc({ 0.07.coin })), 0.9, 1.01),
+	\mod_lev, 3,
+	\car_detune, 1.006
+).play;
+
+~melody.stop;
+
+
+~mousexy2lang.free; ~mouseResp.remove;
