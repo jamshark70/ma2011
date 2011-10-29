@@ -62,21 +62,19 @@ mtw.alwaysOnTop_(true);
 (~dir +/+ "perf/server-defs.scd").loadPath;
 (~dir +/+ "perf/synthdefs.scd").loadPath;
 
+(
 b = Buffer.readChannel(s, ~dir +/+ "samples/starbucks2.aiff", channels: #[0]);
 c = Buffer.read(s, ~dir +/+ "samples/starbuckspv.aiff");
 
+m = MixerChannel(\c1, s, 2, 2, outbus: ~master, completionFunc: { |chan|
+	chan.newPostSend(~rvbchan, 0.4);
+});
+m => MCG(0);
 
-
-
-
-
-
-(~dir +/+ "perf/loadVideo.scd").loadPath;
-
-(
-BP(\wtop).free;
-PR(\windowTop).chuck(BP(\wtop), nil, (guiProc: BP(\mg)));
-BP(\wtop) =>.72 MT(1);
+n = MixerChannel(\c1, s, 2, 2, outbus: ~master, completionFunc: { |chan|
+	chan.newPostSend(~rvbchan, 0.78);
+});
+n => MCG(1);
 )
 
 
@@ -89,6 +87,155 @@ BP(\wtop) =>.72 MT(1);
 	Out.kr([~rawbus.index + 5, ~lagbus.index + 5], [MouseX.kr(0, 1, 0, 0.1), MouseY.kr(0, 1, 0, 0.1)]);
 }.play;
 
+~limiter = Synth(\masterLimiter, nil, s.asTarget, \addAfter);
+
+~rvbus = Bus.audio(s, 2);
+~rvb.free;
+~rvb = Synth(\reverb, [in: ~rvbus, out: 0], s.asTarget, \addAfter);
+
+~srcbus = Bus.audio(s, 2);
+
+~xfer = Synth(\rvbxfer, [inbus: ~srcbus, outbus: ~rvbus, level: 0.2], ~rvb, \addBefore);
+)
+
+
+~keys = Synth(\keys, nil, s.asTarget, \addBefore);
+
+(
+a = nil;
+~resp1.remove;
+~resp1 = OSCresponderNode(s.addr, '/keystroke', { a.tryPerform(\set, \t_trig, 1) }).add;
+
+a = ~master.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
+)
+
+
+(
+~keyResp = PbindProxy(
+	\instrument, \aps,
+	\bufnum, b,
+	\fwdback, Prand(#[-1, 1], inf),
+	\speed, Pexprand(0.125, 8.0, inf),
+	\rate, Pkey(\speed) * Pkey(\fwdback),
+	\rawStart, Pwhite(0, (b.numFrames * 0.8).asInteger, inf),
+	\start, Pif(Pkey(\rate) >= 0, Pkey(\rawStart), b.numFrames - Pkey(\rawStart)),
+	\t_trig, 1,
+	\dcyMul, Pwhite(0.2, 1.0, inf),
+	\apdecay, Pexprand(0.2, 3.5, inf),
+	\topaplevel, Pwhite(0.45, 1.0, inf),
+	\totaldur, Pwhite(0.7, 5.0, inf),
+	\release, Pwhite(0.1, 2.5, inf),
+	\sustain, max(0.1, Pkey(\totaldur) - Pkey(\release)),
+	\latency, 0.05
+);
+
+~keyRespStream = ~keyResp.asStream;
+
+~resp2.remove;
+~resp2 = OSCresponderNode(s.addr, '/keystroke', { ~keyRespStream.next(()).play }).add;
+)
+
+~keyResp.set(\totaldur, Pwhite(0.2, 0.5, inf));
+~keyResp.set(\release, 0.1);
+
+~keyResp.set(\speed, 1);
+~keyResp.set(\speed, Pwhite(0.3, 0.7, inf));
+
+~keyResp.set(\speed, Pexprand(0.8, 1.2, inf) * Env(#[0.3, 7, 1], #[20, 30], \exp));
+
+~keyResp.set(\instrument, \combs);
+
+~keyResp.set(\instrument, Pwrand(#[aps, combs], #[0.8, 0.2], inf));
+
+// remove before performance
+~keyResp.set(\totaldur, Pwhite(0.8, 1.7, inf));
+~keyResp.set(\release, 0.7);
+
+
+a.release(12); OSCpathResponder(s.addr, ['/n_end', a.nodeID], { ~resp1.remove; a = nil }).removeWhenDone.add;
+
+~resp2.remove;  // to stop responding to keystrokes
+
+
+
+(
+~repeaterNode = PbindProxy(
+	\instrument, Pwrand(#[aps, combs], #[0.6, 0.4], inf),
+	\drylev, 0,
+	\bufnum, b,
+	\fwdback, Prand(#[-1, 1], inf),
+	\speed, Pexprand(1, 1.6, inf),
+	\rate, Pkey(\speed) * Pkey(\fwdback),
+	\rawStart, Pwhite(0, (b.numFrames * 0.8).asInteger, inf),
+	\start, Pif(Pkey(\rate) >= 0, Pkey(\rawStart), b.numFrames - Pkey(\rawStart)),
+	\t_trig, 1,
+	\dcyMul, Pwhite(0.01, 0.06, inf),
+	\apdecay, Pexprand(0.2, 3.5, inf),
+	\topaplevel, Pwhite(0.05, 0.15, inf),
+	\totaldur, Pwhite(3.0, 6.0, inf),
+	\release, Pwhite(2.5, 5.0, inf),
+	\sustain, max(0.1, Pkey(\totaldur) - Pkey(\release)),
+	\latency, 0.04,
+	\balance, Pwhite(-1.0, 1.0, inf),
+	\amp, 1
+);
+
+~repeaterNodeStream = ~repeaterNode.asStream;
+
+~nodeLimit = 30;
+~nodes = IdentityDictionary.new;
+~endWatcher.remove;
+~endWatcher = OSCresponderNode(s.addr, '/n_end', e { |t, r, m|
+	if(~nodes[m[1]].notNil) {
+		~nodes[m[1]].stop;  // just in case...
+		~nodes.removeAt(m[1]);
+	};
+}).add;
+
+f = {
+	var node, player;
+	if(~nodes.size < ~nodeLimit) {
+		node = ~repeaterNodeStream.next(()).play;
+		thisThread.clock.sched(0, {
+			player = Pfindur(node.totaldur - 0.12, Pbind(
+				\type, \set,
+				\id, node.id,
+				\args, #[t_trig],
+				\t_trig, 1,
+				\delta, rrand(0.12, 0.26),
+				\latency, 0.05
+			)).play;
+			~nodes[node.id[0]] = player;
+		});
+		node
+	};
+};
+)
+
+
+~resp3.remove;
+~resp3 = OSCresponderNode(s.addr, '/keystroke', { f.value }).add;
+
+~resp2.remove;
+
+
+// SECTION 2
+~starbucksbus = Bus.audio(s, 1);
+
+~bufplay = Synth(\normbufplay, [out: ~starbucksbus, bufnum: b], s.asTarget, \addBefore);
+
+~randcomb = Synth(\randcomb, [inbus: ~starbucksbus, prob: 0.9]);
+
+~resp3.remove;
+
+
+(~dir +/+ "perf/loadVideo.scd").loadPath;
+
+(
+BP(\wtop).free;
+PR(\windowTop).chuck(BP(\wtop), nil, (guiProc: BP(\mg)));
+BP(\wtop) =>.72 MT(1);
+
 ~transmit.remove;
 ~transmit = SimpleController(BP(\ml)).put(\allPtsReceived, e { |m|
 	var toSend = [m.centroid.x, m.centroid.y,
@@ -100,12 +247,27 @@ BP(\wtop) =>.72 MT(1);
 
 
 
-(
+~map.listArgs
+// ~map.(~randcomb, \y, \prob, -0.7, 0.7, 0.1, 0.9);
+~map.(~randcomb, \mag, \prob, 0, 0.8, 0.9, 0.1);
+~map.(~randcomb, \x, \spread, -0.6, 0.6, -1, 1);
+
+Fact(\lrtrig) => BP(\lrtrig);
+BP(\lrtrig) => MT(1);
+
+
+
+
 BP(\cm).free;
 PR(\chordsAndModes) => BP(\cm);
 0.25 => BP(\cm);
+BP(\cm) => MT(1);
+
+~randcomb.release;
 
 
+
+(
 VC(\pl).free;
 Fact(\plucky) => VC(\pl);
 VC(\pl) => MCG(2);
@@ -120,3 +282,12 @@ BP(\arp).free;
 Fact(\arpegBP).chuck(BP(\arp), nil, (model: BP(\ml), chProc: BP(\cm)));
 VC(\pl) => BP(\arp);
 )
+
+BP(\st) => MT(1);
+BP(\arp) => MT(1);
+
+
+~randcomb.release;
+
+
+~master.levelTo(0, 35)
