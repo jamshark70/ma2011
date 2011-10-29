@@ -18,22 +18,7 @@ s.options.memSize = 2**17;
 MIDIClient.init;
 )
 
-~receiver.free;
-~receiver = OSCFunc({ |msg| msg.postcs; \flash.eval(msg[1], msg[2]) }, '/mungo');
 
-\flash2.eval("you there?");
-
-\flash.eval("you don't need Max/M$$$$P".escapeChar($$));
-\flash.eval("you don't need Mac O$$$$X".escapeChar($$));
-
-\mungo.eval("hello");
-
-f = { |time, replyAddr, recvPort, msg| msg.postcs };
-thisProcess.recvOSCfunc = thisProcess.recvOSCfunc.addFunc(f);
-
-thisProcess.recvOSCfunc = thisProcess.recvOSCfunc.removeFunc(f);
-
-NetAddr.localAddr.sendMsg("/test");
 
 (
 var mtw, mxw, vpw;
@@ -71,7 +56,7 @@ m = MixerChannel(\c1, s, 2, 2, outbus: ~master, completionFunc: { |chan|
 });
 m => MCG(0);
 
-n = MixerChannel(\c1, s, 2, 2, outbus: ~master, completionFunc: { |chan|
+n = MixerChannel(\c2, s, 2, 2, outbus: ~master, completionFunc: { |chan|
 	chan.newPostSend(~rvbchan, 0.78);
 });
 n => MCG(1);
@@ -106,7 +91,7 @@ a = nil;
 ~resp1.remove;
 ~resp1 = OSCresponderNode(s.addr, '/keystroke', { a.tryPerform(\set, \t_trig, 1) }).add;
 
-a = ~master.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
+a = n.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
 )
 
 
@@ -126,7 +111,9 @@ a = ~master.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]
 	\totaldur, Pwhite(0.7, 5.0, inf),
 	\release, Pwhite(0.1, 2.5, inf),
 	\sustain, max(0.1, Pkey(\totaldur) - Pkey(\release)),
-	\latency, 0.05
+	\latency, 0.05,
+	\group, n.synthgroup,
+	\out, n.inbus
 );
 
 ~keyRespStream = ~keyResp.asStream;
@@ -140,6 +127,7 @@ a = ~master.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]
 
 ~keyResp.set(\speed, 1);
 ~keyResp.set(\speed, Pwhite(0.3, 0.7, inf));
+~keyResp.set(\speed, Pwhite(3.0, 7.0, inf));
 
 ~keyResp.set(\speed, Pexprand(0.8, 1.2, inf) * Env(#[0.3, 7, 1], #[20, 30], \exp));
 
@@ -177,7 +165,7 @@ a.release(12); OSCpathResponder(s.addr, ['/n_end', a.nodeID], { ~resp1.remove; a
 	\sustain, max(0.1, Pkey(\totaldur) - Pkey(\release)),
 	\latency, 0.04,
 	\balance, Pwhite(-1.0, 1.0, inf),
-	\amp, 1
+	\amp, 0.3
 );
 
 ~repeaterNodeStream = ~repeaterNode.asStream;
@@ -203,7 +191,9 @@ f = {
 				\args, #[t_trig],
 				\t_trig, 1,
 				\delta, rrand(0.12, 0.26),
-				\latency, 0.05
+				\latency, 0.05,
+				\group, n.synthgroup,
+				\out, n.inbus
 			)).play;
 			~nodes[node.id[0]] = player;
 		});
@@ -217,17 +207,6 @@ f = {
 ~resp3 = OSCresponderNode(s.addr, '/keystroke', { f.value }).add;
 
 ~resp2.remove;
-
-
-// SECTION 2
-~starbucksbus = Bus.audio(s, 1);
-
-~bufplay = Synth(\normbufplay, [out: ~starbucksbus, bufnum: b], s.asTarget, \addBefore);
-
-~randcomb = Synth(\randcomb, [inbus: ~starbucksbus, prob: 0.9]);
-
-~resp3.remove;
-
 
 (~dir +/+ "perf/loadVideo.scd").loadPath;
 
@@ -246,10 +225,20 @@ BP(\wtop) =>.72 MT(1);
 )
 
 
+// SECTION 2
+~starbucksbus = Bus.audio(s, 1);
+
+~bufplay = Synth(\normbufplay, [out: ~starbucksbus, bufnum: b], s.asTarget, \addBefore);
+
+~randcomb = n.play(\randcomb, [inbus: ~starbucksbus, prob: 0.9]);
+
+~resp3.remove;
+
+
 
 ~map.listArgs
 // ~map.(~randcomb, \y, \prob, -0.7, 0.7, 0.1, 0.9);
-~map.(~randcomb, \mag, \prob, 0, 0.8, 0.9, 0.1);
+~map.(~randcomb, \mag, \prob, 0, 0.8, 0.9, 0.3, 6);
 ~map.(~randcomb, \x, \spread, -0.6, 0.6, -1, 1);
 
 Fact(\lrtrig) => BP(\lrtrig);
@@ -263,7 +252,6 @@ PR(\chordsAndModes) => BP(\cm);
 0.25 => BP(\cm);
 BP(\cm) => MT(1);
 
-~randcomb.release;
 
 
 
@@ -271,6 +259,10 @@ BP(\cm) => MT(1);
 VC(\pl).free;
 Fact(\plucky) => VC(\pl);
 VC(\pl) => MCG(2);
+
+VC(\pl2).free;
+Fact(\plucky) => VC(\pl2);
+VC(\pl2) => MCG(3);
 
 
 BP(\st).free;
@@ -280,7 +272,7 @@ VC(\pl) => BP(\st);
 
 BP(\arp).free;
 Fact(\arpegBP).chuck(BP(\arp), nil, (model: BP(\ml), chProc: BP(\cm)));
-VC(\pl) => BP(\arp);
+VC(\pl2) => BP(\arp);
 )
 
 BP(\st) => MT(1);

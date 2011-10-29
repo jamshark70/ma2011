@@ -26,6 +26,13 @@ SynthDef(\expmap, { |inbus, outbus, inMin, inMax, outMin, outMax|
 	);
 }).perform(~addSel);
 
+SynthDef(\curvemap, { |inbus, outbus, inMin, inMax, outMin, outMax, curve|
+	var mapenv = InterplEnv([outMin, outMax], [inMax - inMin], curve);
+	ReplaceOut.kr(outbus,
+		IEnvGen.kr(mapenv, In.kr(inbus, 1) - inMin)
+	);
+}).perform(~addSel);
+
 
 SynthDef("rvbxfer", {
 	arg inbus, outbus, level = 0.1;
@@ -132,7 +139,7 @@ SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1
 ~mappedData = IdentityDictionary.new;
 ~ctlNums = (x: 0, y: 1, theta: 2, rho: 3, mag: 4, angle: 2, radius: 3, rad: 3, mx: 5, mouseX: 5, my: 6, mouseY: 6);
 ~map = { |synth, name, ctlName, inMin, inMax, outMin, outMax, curve(\lin), source(~lagbus)|
-	var synthmaps, mapping;
+	var synthmaps, mapping, cnum;
 	if(synth.isKindOf(Synth)) {
 		~unmap.(synth, name);
 		synthmaps = ~mappedData[synth];
@@ -144,6 +151,10 @@ SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1
 		mapping = IdentityDictionary.new;
 		mapping[\bus] = Bus.control(s, 1);
 		mapping[\ctlname] = ctlName;
+		if(curve.isNumber) {
+			cnum = curve;
+			curve = "curve";
+		};
 		mapping[\mapsynth] = Synth(curve ++ "map",
 			[
 				inbus: source.index + (~ctlNums[name] ? 0),

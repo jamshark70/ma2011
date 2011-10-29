@@ -124,3 +124,22 @@ MouseY.findRespondingMethodFor(\madd)
 
 MouseY.kr * 1 + 2
 
+
+
+
+~receiver.free;
+~receiver = OSCFunc({ |msg| msg.postcs; \flash.eval(msg[1], msg[2]) }, '/mungo');
+
+\flash2.eval("you there?");
+
+\flash.eval("you don't need Max/M$$$$P".escapeChar($$));
+\flash.eval("you don't need Mac O$$$$X".escapeChar($$));
+
+\mungo.eval("hello");
+
+f = { |time, replyAddr, recvPort, msg| msg.postcs };
+thisProcess.recvOSCfunc = thisProcess.recvOSCfunc.addFunc(f);
+
+thisProcess.recvOSCfunc = thisProcess.recvOSCfunc.removeFunc(f);
+
+NetAddr.localAddr.sendMsg("/test");
