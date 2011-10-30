@@ -12,8 +12,10 @@ s.options.memSize = 2**17;
 
 ~mungo = "192.168.1.101";
 
-~mungoClient = NetAddr(~mungo, 57120);
+~mungoClient = NetAddr(~mungo, 57121);
 ~mungoServer = NetAddr(~mungo, 57110);
+
+~listenToMungo.free; ~listenToMungo = OSCFunc({ |msg| \flash.eval("mungo:" + msg[1].postln) }, '/mungo');
 
 MIDIClient.init;
 )
@@ -84,6 +86,7 @@ n => MCG(1);
 )
 
 
+~keys.free;
 ~keys = Synth(\keys, nil, s.asTarget, \addBefore);
 
 (
@@ -93,6 +96,7 @@ a = nil;
 
 a = n.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
 )
+
 
 
 (
@@ -112,8 +116,8 @@ a = n.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
 	\release, Pwhite(0.1, 2.5, inf),
 	\sustain, max(0.1, Pkey(\totaldur) - Pkey(\release)),
 	\latency, 0.05,
-	\group, n.synthgroup,
-	\out, n.inbus
+	\group, m.synthgroup,
+	\out, m.inbus
 );
 
 ~keyRespStream = ~keyResp.asStream;
@@ -121,6 +125,10 @@ a = n.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
 ~resp2.remove;
 ~resp2 = OSCresponderNode(s.addr, '/keystroke', { ~keyRespStream.next(()).play }).add;
 )
+
+a.release(12); OSCpathResponder(s.addr, ['/n_end', a.nodeID], { ~resp1.remove; a = nil }).removeWhenDone.add;
+
+
 
 ~keyResp.set(\totaldur, Pwhite(0.2, 0.5, inf));
 ~keyResp.set(\release, 0.1);
@@ -131,6 +139,9 @@ a = n.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
 
 ~keyResp.set(\speed, Pexprand(0.8, 1.2, inf) * Env(#[0.3, 7, 1], #[20, 30], \exp));
 
+~keyResp.set(\totaldur, Env(#[0.2, 1.0], #[15]).asStream);
+
+
 ~keyResp.set(\instrument, \combs);
 
 ~keyResp.set(\instrument, Pwrand(#[aps, combs], #[0.8, 0.2], inf));
@@ -140,7 +151,7 @@ a = n.play(\combs, [bufnum: b, attack: 15, release: 1.2, topaplevel: 0.25]);
 ~keyResp.set(\release, 0.7);
 
 
-a.release(12); OSCpathResponder(s.addr, ['/n_end', a.nodeID], { ~resp1.remove; a = nil }).removeWhenDone.add;
+
 
 ~resp2.remove;  // to stop responding to keystrokes
 
@@ -200,7 +211,7 @@ f = {
 		node
 	};
 };
-)
+);
 
 
 ~resp3.remove;
@@ -208,12 +219,13 @@ f = {
 
 ~resp2.remove;
 
+
 (~dir +/+ "perf/loadVideo.scd").loadPath;
 
 (
 BP(\wtop).free;
 PR(\windowTop).chuck(BP(\wtop), nil, (guiProc: BP(\mg)));
-BP(\wtop) =>.72 MT(1);
+BP(\wtop) =>.59 MT(1);
 
 ~transmit.remove;
 ~transmit = SimpleController(BP(\ml)).put(\allPtsReceived, e { |m|
@@ -233,7 +245,7 @@ BP(\wtop) =>.72 MT(1);
 ~randcomb = n.play(\randcomb, [inbus: ~starbucksbus, prob: 0.9]);
 
 ~resp3.remove;
-
+~keys.free;
 
 
 ~map.listArgs
@@ -244,7 +256,7 @@ BP(\wtop) =>.72 MT(1);
 Fact(\lrtrig) => BP(\lrtrig);
 BP(\lrtrig) => MT(1);
 
-
+Fact(\lrtrig) => MT(1);
 
 
 BP(\cm).free;
@@ -273,13 +285,14 @@ VC(\pl) => BP(\st);
 BP(\arp).free;
 Fact(\arpegBP).chuck(BP(\arp), nil, (model: BP(\ml), chProc: BP(\cm)));
 VC(\pl2) => BP(\arp);
-)
+);
 
 BP(\st) => MT(1);
 BP(\arp) => MT(1);
 
 
-~randcomb.release;
+~randcomb.release(15);
+
 
 
 ~master.levelTo(0, 35)

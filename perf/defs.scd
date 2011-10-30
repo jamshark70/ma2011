@@ -59,6 +59,8 @@ Proto({
 	text
 } => Func(\mungo);
 
+z = Func(\flash2);
+
 
 // UNBELIEVABLE what it took to get this working
 WrapInstr("osc2.fm2car_v", { arg freq, gate, car_env, mod_env, mod_lev, mod_ratio, detune, car_detune,
@@ -521,6 +523,7 @@ PR(\abstractProcess).clone({
 		}.asStream.all;
 		~oldChords ?? { ~oldChords = ~chords };
 		~blend = ~makeBlend.();
+		NotificationCenter.notify(~collIndex, \newChord);
 		~sendOSC.();
 	};
 

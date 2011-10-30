@@ -14,22 +14,28 @@ SynthDef(\masterLimiter, {
 }).perform(~addSel);
 
 
-SynthDef(\linmap, { |inbus, outbus, inMin, inMax, outMin, outMax|
+SynthDef(\linmap, { |inbus, outbus, inMin, inMax, outMin, outMax, xfadetime = 0.15|
+	var old = Latch.kr(In.kr(outbus, 1), 1),
+	new = In.kr(inbus, 1).linlin(inMin, inMax, outMin, outMax);
 	ReplaceOut.kr(outbus,
-		In.kr(inbus, 1).linlin(inMin, inMax, outMin, outMax)
+		LinXFade2.kr(old, new, Line.kr(-1, 1, xfadetime))
 	);
 }).perform(~addSel);
 
-SynthDef(\expmap, { |inbus, outbus, inMin, inMax, outMin, outMax|
+SynthDef(\expmap, { |inbus, outbus, inMin, inMax, outMin, outMax, xfadetime = 0.15|
+	var old = Latch.kr(In.kr(outbus, 1), 1),
+	new = In.kr(inbus, 1).linexp(inMin, inMax, outMin, outMax);
 	ReplaceOut.kr(outbus,
-		In.kr(inbus, 1).linexp(inMin, inMax, outMin, outMax)
+		LinXFade2.kr(old, new, Line.kr(-1, 1, xfadetime))
 	);
 }).perform(~addSel);
 
-SynthDef(\curvemap, { |inbus, outbus, inMin, inMax, outMin, outMax, curve|
-	var mapenv = InterplEnv([outMin, outMax], [inMax - inMin], curve);
+SynthDef(\curvemap, { |inbus, outbus, inMin, inMax, outMin, outMax, curve, xfadetime = 0.15|
+	var mapenv = InterplEnv([outMin, outMax], [inMax - inMin], curve),
+	old = Latch.kr(In.kr(outbus, 1), 1),
+	new = IEnvGen.kr(mapenv, In.kr(inbus, 1) - inMin);
 	ReplaceOut.kr(outbus,
-		IEnvGen.kr(mapenv, In.kr(inbus, 1) - inMin)
+		LinXFade2.kr(old, new, Line.kr(-1, 1, xfadetime))
 	);
 }).perform(~addSel);
 
@@ -158,7 +164,8 @@ SynthDef(\combs, { |out, bufnum, t_trig = 0, gate = 1, attack = 0.01, susLev = 1
 		mapping[\mapsynth] = Synth(curve ++ "map",
 			[
 				inbus: source.index + (~ctlNums[name] ? 0),
-				outbus: mapping[\bus]
+				outbus: mapping[\bus],
+				curve: cnum ? 0
 			] ++ [#[inMin, inMax, outMin, outMax], [inMin, inMax, outMin, outMax]].flop.flat,
 			target: s.asTarget, addAction: \addBefore
 		);
@@ -290,4 +297,35 @@ SynthDef(\randcomb, { |inbus, prob = 0.5, t_trig = 1, gate = 1, xftime = 0.5, sp
 	sig1 = Pan2.ar(IFFT([fft, fftR]), spread * #[-1, 1]);
 	sig2 = Pan2.ar(IFFT([fft2, fft2R]), spread * #[-1, 1]);
 	Out.ar(out, XFade2.ar(sig1, sig2, pan.madd(2, -1), eg).sum)
+}).add;
+
+
+SynthDef(\bass, { |out, freq, freqlag = 0.5, gate = 1, amp = 0.1, det = 1.005,
+	ffreq = 230, rq = 0.3, hpfreq = 300, hiAmp = 0.1,
+	modbase = 0, modspike = 0, modfreq = 0.3, modfspike = 0, //t_modtrig = 0,
+	rqdiv = 5|
+	var	t_modtrig = NamedControl.tr(\t_modtrig, 0),
+	sig = Saw.ar(Lag.kr(freq, freqlag) * [1, det], amp).sum,
+	modtrig = Latch.kr(t_modtrig, t_modtrig),
+	mt12 = modtrig * 0.12,
+	gt0 = t_modtrig > 0,
+	modfplus = Decay2.kr(gt0, mt12, modtrig, modfspike),
+	modaplus = Decay2.kr(gt0, mt12, modtrig, modspike),
+	ffmod = SinOsc.kr(modfreq + modfplus, 0).exprange(1, 1 + modbase + modaplus),
+	rqspike = EnvGen.kr(Env([1, rqdiv, 1], [mt12, modtrig], -2.5), t_modtrig),
+	eg = EnvGen.kr(Env.asr(0.1, 1, 8), gate, doneAction: 2),
+	lpf, hpf, fft, fft2, pan1;
+	lpf = RLPF.ar(sig, ffreq * ffmod, rq / rqspike);
+	hpf = HPF.ar(sig, hpfreq);
+	fft = FFT(LocalBuf(1024, 1), hpf);
+	fft2 = PV_Copy(fft, LocalBuf(1024, 1));
+	fft = PV_RandComb(fft, 0.86, Dust.kr(0.05));
+	fft2 = PV_RandComb(fft2, 0.86, Dust.kr(0.05));
+	pan1 = DemandEnvGen.kr(
+		Dstutter(Diwhite(2, 9, inf), Dseq(#[-1, 1], inf)) * Dwhite(0.15, 1.0, inf),
+		Dwhite(0, 1, inf).linexp(0, 1, 0.2, 0.7)
+	);
+	hpf = Pan2.ar(IFFT([fft, fft2]), [pan1, (LFNoise1.kr(0.09, 0.2) - pan1).fold(-1, 1)],
+		hiAmp).sum;
+	Out.ar(out, (lpf + hpf) * eg);
 }).add;

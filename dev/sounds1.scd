@@ -636,3 +636,57 @@ BP(\pv).which = Pif(
 	Pwxrand([z, \sweep, \sweepRev, \holdswp, \swphold], #[1, 3, 3, 3, 3].normalizeSum, inf),
 	Pwxrand([z, \sweep, \sweepRev, \holdswp, \swphold], #[6, 1, 1, 1, 1].normalizeSum, inf)
 );
+
+
+SynthDef(\bass, { |out, freq, freqlag = 0.5, gate = 1, amp = 0.1, det = 1.005,
+	ffreq = 230, rq = 0.3, hpfreq = 300, hiAmp = 0.1,
+	modbase = 0, modspike = 0, modfreq = 0.3, modfspike = 0, //t_modtrig = 0,
+	rqdiv = 5|
+	var	t_modtrig = NamedControl.tr(\t_modtrig, 0),
+	sig = Saw.ar(Lag.kr(freq, freqlag) * [1, det], amp).sum,
+	modtrig = Latch.kr(t_modtrig, t_modtrig),
+	mt12 = modtrig * 0.12,
+	gt0 = t_modtrig > 0,
+	modfplus = Decay2.kr(gt0, mt12, modtrig, modfspike),
+	modaplus = Decay2.kr(gt0, mt12, modtrig, modspike),
+	ffmod = SinOsc.kr(modfreq + modfplus, 0).exprange(1, 1 + modbase + modaplus),
+	rqspike = EnvGen.kr(Env([1, rqdiv, 1], [mt12, modtrig], -2.5), t_modtrig),
+	eg = EnvGen.kr(Env.asr(0.1, 1, 8), gate, doneAction: 2),
+	lpf, hpf, fft, fft2, pan1;
+	lpf = RLPF.ar(sig, ffreq * ffmod, rq / rqspike);
+	hpf = HPF.ar(sig, hpfreq);
+	fft = FFT(LocalBuf(1024, 1), hpf);
+	fft2 = PV_Copy(fft, LocalBuf(1024, 1));
+	fft = PV_RandComb(fft /*<! fft2*/, 0.86, Dust.kr(0.05));
+	fft2 = PV_RandComb(fft2, 0.86, Dust.kr(0.05)); // PV_MagSubtract(fft2, fft);
+	pan1 = DemandEnvGen.kr(
+		Dstutter(Diwhite(2, 9, inf), Dseq(#[-1, 1], inf)) * Dwhite(0.15, 1.0, inf),
+		Dwhite(0, 1, inf).linexp(0, 1, 0.2, 0.7)
+	);
+	hpf = Pan2.ar(IFFT([fft, fft2]), [pan1, (LFNoise1.kr(0.09, 0.2) - pan1).fold(-1, 1)],
+		hiAmp).sum;
+	Out.ar(out, (lpf + hpf) * eg);
+}).add;
+
+a = m.play(\bass, [freq: 38.midicps, modbase: 0.6, modspike: 2, modfspike: 3, rqdiv: 5]);
+a.trace;
+
+a.set(\freq, 26.midicps);
+
+a.set(\hiAmp, 0.4);
+
+a.set(\modfspike, 18);
+a.set(\modspike, 1.4);
+
+a.set(\hpfreq, 400);
+
+fork {
+	a.set(\t_modtrig, 5);
+	0.1.wait;
+	a.trace;
+};
+
+
+a.release;
+
+(1014..1016).do(s.sendMsg(\n_free, _))
